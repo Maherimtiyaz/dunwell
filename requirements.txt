@@ -1,0 +1,2 @@
+# Dunwell runs on the Python standard library only.
+# No third-party runtime dependencies for the demo engine.

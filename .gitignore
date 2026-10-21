@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Generated reports
+out/
+
+# Runtime databases. These hold customer ledger data, password hashes, and
+# session digests - they are per-deployment state, never source.
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Ad-hoc scratch scripts, at the repo root ONLY. Must be anchored: an
+# unanchored _*.py also matches __init__.py and __main__.py, which would
+# silently drop the package's entry points from the commit.
+/_*.py
+/_*.ps1
+
+# Secrets
+.env
+.env.*
+!.env.example

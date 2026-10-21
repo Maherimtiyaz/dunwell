@@ -1,0 +1,25 @@
+{
+  "QueryResponse": {
+    "Customer": [
+      {
+        "Id": "12",
+        "DisplayName": "Ava Chen",
+        "PrimaryEmailAddr": { "Address": "ava@lumenlabs.io" },
+        "Notes": "Renewed twice; prefers a warm tone"
+      },
+      {
+        "Id": "13",
+        "DisplayName": "Marcus Reed",
+        "PrimaryEmailAddr": { "Address": "marcus@brightpath.co" }
+      },
+      {
+        "Id": "14",
+        "DisplayName": "Sam Okafor",
+        "PrimaryEmailAddr": {}
+      }
+    ],
+    "maxResults": 3,
+    "startPosition": 1
+  },
+  "time": "2026-10-16T09:00:00.000-07:00"
+}

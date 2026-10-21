@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Dunwell — Receivables</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%236366f1'/><path d='M9 21l4-10 3 6 3-4 4 8' stroke='white' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>"
+    />
+    <style>
+      :root {
+        --canvas: #0a0a0a;
+        --surface: #111111;
+        --surface-2: #161616;
+        --line: #1f1f1f;
+        --brand: #6366f1;
+        --brand-light: #818cf8;
+        --signal: #10b981;
+        --urgency: #f59e0b;
+        --ink: #fafafa;
+        --ink-muted: #a1a1aa;
+        --ink-faint: #82828b;
+        --radius: 0.7rem;
+        --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas,
+          monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          sans-serif;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .wrap {
+        max-width: 68rem;
+        margin: 0 auto;
+        padding: 0 1.5rem 5rem;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1.25rem 0;
+        border-bottom: 1px solid var(--line);
+        margin-bottom: 2rem;
+        flex-wrap: wrap;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+        background: linear-gradient(135deg, var(--brand), #8b5cf6);
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 1.5rem;
+        margin-bottom: 1.25rem;
+      }
+
+      h2 {
+        margin: 0 0 0.35rem;
+        font-size: 1.05rem;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .sub {
+        margin: 0 0 1.25rem;
+        color: var(--ink-faint);
+        font-size: 0.9rem;
+      }
+
+      label {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--ink-muted);
+        margin-bottom: 0.3rem;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 0.45rem;
+        color: var(--ink);
+        padding: 0.6rem 0.75rem;
+        font-size: 0.9rem;
+        font-family: inherit;
+      }
+
+      textarea {
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        min-height: 6.5rem;
+        resize: vertical;
+      }
+
+      input:focus,
+      textarea:focus {
+        outline: none;
+        border-color: var(--brand);
+      }
+
+      .row {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+
+      .row > * {
+        flex: 1 1 16rem;
+      }
+
+      .field {
+        margin-bottom: 0.9rem;
+      }
+
+      button {
+        background: var(--brand);
+        color: #fff;
+        border: none;
+        border-radius: 99px;
+        padding: 0.55rem 1.1rem;
+        font-size: 0.85rem;
+        font-weight: 500;
+        font-family: inherit;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: var(--brand-light);
+      }
+
+      button.ghost {
+        background: transparent;
+        border: 1px solid var(--line);
+        color: var(--ink-muted);
+      }
+
+      button.ghost:hover {
+        border-color: var(--brand);
+        color: var(--ink);
+      }
+
+      button.small {
+        padding: 0.35rem 0.85rem;
+        font-size: 0.78rem;
+      }
+
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+        gap: 0.85rem;
+      }
+
+      .metric {
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 0.95rem 1rem;
+      }
+
+      .metric .k {
+        font-size: 0.72rem;
+        color: var(--ink-faint);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .metric .v {
+        font-size: 1.45rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        margin-top: 0.15rem;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+      }
+
+      th {
+        text-align: left;
+        color: var(--ink-faint);
+        font-weight: 500;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0 0.6rem 0.55rem;
+        border-bottom: 1px solid var(--line);
+      }
+
+      td {
+        padding: 0.6rem;
+        border-bottom: 1px solid var(--line);
+      }
+
+      td.num,
+      th.num {
+        text-align: right;
+        font-family: var(--mono);
+        font-size: 0.8rem;
+      }
+
+      .chip {
+        display: inline-block;
+        padding: 0.1rem 0.55rem;
+        border-radius: 99px;
+        font-size: 0.7rem;
+        font-family: var(--mono);
+        border: 1px solid var(--line);
+        color: var(--ink-muted);
+        white-space: nowrap;
+      }
+
+      .chip.draft {
+        color: var(--signal);
+        border-color: rgba(16, 185, 129, 0.35);
+      }
+
+      .chip.hold {
+        color: var(--ink-faint);
+      }
+
+      .chip.escalate {
+        color: var(--urgency);
+        border-color: rgba(245, 158, 11, 0.35);
+      }
+
+      .draft-card {
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 1.1rem;
+        margin-bottom: 0.85rem;
+      }
+
+      .draft-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.6rem;
+      }
+
+      .draft-subject {
+        font-weight: 600;
+        font-size: 0.92rem;
+      }
+
+      .draft-to {
+        color: var(--ink-faint);
+        font-size: 0.78rem;
+        font-family: var(--mono);
+      }
+
+      .draft-body {
+        white-space: pre-wrap;
+        background: var(--canvas);
+        border: 1px solid var(--line);
+        border-radius: 0.45rem;
+        padding: 0.85rem;
+        font-size: 0.82rem;
+        color: var(--ink-muted);
+        margin-bottom: 0.75rem;
+      }
+
+      .facts {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 0.85rem;
+        font-size: 0.75rem;
+        color: var(--ink-faint);
+      }
+
+      .facts li::before {
+        content: "· ";
+        color: var(--brand);
+      }
+
+      .empty {
+        color: var(--ink-faint);
+        font-size: 0.88rem;
+        padding: 1.25rem 0;
+      }
+
+      .note {
+        font-size: 0.8rem;
+        margin-top: 0.75rem;
+        min-height: 1.2rem;
+      }
+
+      .note.ok {
+        color: var(--signal);
+      }
+
+      .note.err {
+        color: #f87171;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      /* Keep the nudge-history table inside its card on narrow screens
+         instead of letting it widen the whole page. */
+      #nudges {
+        overflow-x: auto;
+      }
+
+      .aging-bar {
+        display: flex;
+        height: 34px;
+        border-radius: 0.45rem;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        margin-bottom: 0.6rem;
+      }
+
+      .aging-bar > div {
+        display: grid;
+        place-items: center;
+        font-size: 0.7rem;
+        font-family: var(--mono);
+        color: #0a0a0a;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .aging-legend {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        font-size: 0.75rem;
+        color: var(--ink-faint);
+      }
+
+      .swatch {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 2px;
+        margin-right: 0.35rem;
+      }
+
+      .mono {
+        font-family: var(--mono);
+        font-size: 0.8rem;
+      }
+
+      .muted {
+        color: var(--ink-faint);
+      }
+
+      .tabs {
+        display: flex;
+        gap: 0.35rem;
+        margin-bottom: 1rem;
+      }
+
+      .link {
+        color: var(--brand-light);
+        text-decoration: none;
+        font-size: 0.82rem;
+      }
+
+      a.link:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">
+          <span class="mark" aria-hidden="true">
+            <svg width="13" height="13" viewBox="0 0 32 32" fill="none">
+              <path
+                d="M9 21l4-10 3 6 3-4 4 8"
+                stroke="white"
+                stroke-width="2.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
+          Dunwell
+        </div>
+        <div id="session" class="hidden">
+          <span class="mono muted" id="whoami"></span>
+          <button class="ghost small" id="logout">Sign out</button>
+          <a class="link" href="/">← Site</a>
+        </div>
+      </header>
+
+      <!-- Auth ------------------------------------------------------------ -->
+      <section class="card" id="auth">
+        <h2 id="auth-title">Sign in</h2>
+        <p class="sub">
+          One account per business. Passwords are scrypt-hashed locally; nothing
+          leaves this machine unless you enable SMTP.
+        </p>
+        <div class="tabs">
+          <button class="ghost small" id="tab-login">Sign in</button>
+          <button class="ghost small" id="tab-signup">Create account</button>
+        </div>
+        <!-- A real <form> so Enter submits and password managers recognise it. -->
+        <form id="auth-form" autocomplete="on">
+          <div class="row">
+            <div class="field">
+              <label for="email">Email</label>
+              <input id="email" type="email" autocomplete="username" required />
+            </div>
+            <div class="field">
+              <label for="password">Password (min 8 characters)</label>
+              <input
+                id="password"
+                type="password"
+                autocomplete="current-password"
+                minlength="8"
+                required
+              />
+            </div>
+          </div>
+          <button id="auth-submit" type="submit">Sign in</button>
+        </form>
+        <div class="note" id="auth-note"></div>
+      </section>
+
+      <!-- App ------------------------------------------------------------- -->
+      <div id="app" class="hidden">
+        <section class="card">
+          <h2>1 · Import your ledger</h2>
+          <p class="sub">
+            Paste the two CSVs your accounting tool exports, or start from the
+            demo. Importing replaces the current ledger.
+          </p>
+          <div class="row">
+            <div class="field">
+              <label for="customers">customers.csv</label>
+              <textarea
+                id="customers"
+                spellcheck="false"
+                placeholder="id,name,email,tier,opted_out&#10;c1,Ava Chen,ava@acme.io,standard,"
+              ></textarea>
+            </div>
+            <div class="field">
+              <label for="invoices">invoices.csv</label>
+              <textarea
+                id="invoices"
+                spellcheck="false"
+                placeholder="id,number,customer_id,amount_cents,currency,issued_on,due_on,status&#10;i1,INV-1001,c1,120000,USD,2026-09-01,2026-09-30,open"
+              ></textarea>
+            </div>
+          </div>
+          <div class="row" style="align-items: center">
+            <div style="flex: 0 0 auto">
+              <button id="import">Import ledger</button>
+              <button class="ghost" id="load-demo">Load demo</button>
+            </div>
+            <div class="mono muted" id="ledger-summary"></div>
+          </div>
+          <div class="note" id="ledger-note"></div>
+        </section>
+
+        <section class="card">
+          <h2>2 · Report</h2>
+          <p class="sub">
+            Every invoice is decided by the same ordered policy, then drafted
+            only from facts on the record.
+          </p>
+          <div class="metrics" id="metrics"></div>
+          <div style="margin-top: 1.25rem" id="aging-wrap"></div>
+          <div style="margin-top: 1.25rem; overflow-x: auto">
+            <table>
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th>Customer</th>
+                  <th class="num">Amount</th>
+                  <th class="num">Days overdue</th>
+                  <th>Stage</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody id="decisions"></tbody>
+            </table>
+          </div>
+          <div class="note" id="report-note"></div>
+        </section>
+
+        <section class="card">
+          <h2>3 · Drafts awaiting approval</h2>
+          <p class="sub">
+            Nothing is sent until you press send. Each send is recorded as a
+            nudge, which advances the tone ladder and enforces the cooldown.
+          </p>
+          <div id="drafts"></div>
+        </section>
+
+        <section class="card">
+          <h2>Nudge history</h2>
+          <p class="sub">
+            Durable record of every follow-up, so policy caps survive a
+            restart.
+          </p>
+          <div id="nudges"></div>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        var mode = "login";
+        var $ = function (id) {
+          return document.getElementById(id);
+        };
+
+        function money(cents, currency) {
+          return (
+            (currency || "USD") +
+            " " +
+            (cents / 100).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })
+          );
+        }
+
+        function el(tag, className, text) {
+          var node = document.createElement(tag);
+          if (className) node.className = className;
+          if (text != null) node.textContent = text; // never innerHTML: no XSS
+          return node;
+        }
+
+        function note(id, message, ok) {
+          var node = $(id);
+          node.textContent = message || "";
+          node.className = "note " + (ok ? "ok" : "err");
+        }
+
+        function api(path, options) {
+          options = options || {};
+          options.headers = options.headers || {};
+          if (options.body && typeof options.body === "string") {
+            options.headers["Content-Type"] = "application/json";
+          }
+          options.credentials = "same-origin";
+          return fetch(path, options).then(function (res) {
+            return res
+              .json()
+              .catch(function () {
+                return {};
+              })
+              .then(function (data) {
+                return { status: res.status, data: data };
+              });
+          });
+        }
+
+        // --- Auth -----------------------------------------------------------
+
+        function setMode(next) {
+          mode = next;
+          $("auth-title").textContent =
+            next === "login" ? "Sign in" : "Create your account";
+          $("auth-submit").textContent =
+            next === "login" ? "Sign in" : "Create account";
+          // Tell password managers whether this is an existing or new secret.
+          $("password").autocomplete =
+            next === "login" ? "current-password" : "new-password";
+          $("tab-login").style.borderColor =
+            next === "login" ? "var(--brand)" : "var(--line)";
+          $("tab-signup").style.borderColor =
+            next === "signup" ? "var(--brand)" : "var(--line)";
+        }
+
+        function submitAuth() {
+          var email = $("email").value.trim();
+          var password = $("password").value;
+          if (!email) return note("auth-note", "Enter your email.", false);
+          if (password.length < 8)
+            return note("auth-note", "Password must be 8+ characters.", false);
+
+          api("/api/" + mode, {
+            method: "POST",
+            body: JSON.stringify({ email: email, password: password }),
+          }).then(function (r) {
+            if (r.status === 200) {
+              $("auth-note").textContent = "";
+              return enter();
+            }
+            var message =
+              (r.data.error && r.data.error.message) || "Could not sign in.";
+            if (message === "invalid_credentials")
+              message = "Wrong email or password.";
+            if (message === "account already exists: " + email.toLowerCase())
+              message = "That email already has an account — sign in instead.";
+            note("auth-note", message, false);
+          });
+        }
+
+        function enter() {
+          $("auth").classList.add("hidden");
+          $("app").classList.remove("hidden");
+          $("session").classList.remove("hidden");
+          refresh();
+        }
+
+        function signOut() {
+          api("/api/logout", { method: "POST" }).then(function () {
+            $("app").classList.add("hidden");
+            $("session").classList.add("hidden");
+            $("auth").classList.remove("hidden");
+          });
+        }
+
+        // --- Ledger ---------------------------------------------------------
+
+        function importLedger(payload, label) {
+          api("/api/ledger", { method: "POST", body: JSON.stringify(payload) })
+            .then(function (r) {
+              if (r.status !== 200) {
+                var message =
+                  (r.data.error && r.data.error.message) || "Import failed.";
+                return note("ledger-note", message, false);
+              }
+              note(
+                "ledger-note",
+                "Imported " + r.data.invoices + " invoices and " +
+                  r.data.customers + " customers.",
+                true
+              );
+              refresh();
+            })
+            .catch(function () {
+              note("ledger-note", "Network error.", false);
+            });
+          if (label) $("ledger-summary").textContent = label;
+        }
+
+        // --- Report ---------------------------------------------------------
+
+        function renderMetrics(m) {
+          var wrap = $("metrics");
+          wrap.textContent = "";
+          var items = [
+            ["Invoices", String(m.invoices)],
+            ["Ready to send", String(m.drafts)],
+            ["On hold", String(m.holds)],
+            ["Recoverable", money(m.recoverable_cents, "USD")],
+            ["At risk", money(m.at_risk_cents, "USD")],
+            ["Needs human", money(m.escalate_cents, "USD")],
+            ["Avg days overdue", m.dso == null ? "—" : String(m.dso)],
+          ];
+          items.forEach(function (pair) {
+            var box = el("div", "metric");
+            box.appendChild(el("div", "k", pair[0]));
+            box.appendChild(el("div", "v", pair[1]));
+            wrap.appendChild(box);
+          });
+        }
+
+        function renderAging(aging) {
+          var wrap = $("aging-wrap");
+          wrap.textContent = "";
+          var keys = Object.keys(aging || {});
+          if (!keys.length) return;
+
+          var colors = {
+            current: "#4b5563",
+            "1-30": "#10b981",
+            "31-60": "#84cc16",
+            "61-90": "#f59e0b",
+            "90+": "#ef4444",
+          };
+          var total = keys.reduce(function (sum, k) {
+            return sum + aging[k];
+          }, 0);
+          if (!total) return;
+
+          var bar = el("div", "aging-bar");
+          keys.forEach(function (k) {
+            var seg = el("div", "", Math.round((aging[k] / total) * 100) + "%");
+            seg.style.background = colors[k] || "#4b5563";
+            seg.style.width = (aging[k] / total) * 100 + "%";
+            bar.appendChild(seg);
+          });
+          wrap.appendChild(bar);
+
+          var legend = el("div", "aging-legend");
+          keys.forEach(function (k) {
+            var item = el("span");
+            var sw = el("span", "swatch");
+            sw.style.background = colors[k] || "#4b5563";
+            item.appendChild(sw);
+            item.appendChild(
+              document.createTextNode(k + " · " + money(aging[k], "USD"))
+            );
+            legend.appendChild(item);
+          });
+          wrap.appendChild(legend);
+        }
+
+        function renderDecisions(rows) {
+          var body = $("decisions");
+          body.textContent = "";
+          if (!rows.length) {
+            var tr = el("tr");
+            var td = el("td", "empty", "Nothing to show yet — import a ledger.");
+            td.colSpan = 6;
+            tr.appendChild(td);
+            body.appendChild(tr);
+            return;
+          }
+          rows.forEach(function (d) {
+            var tr = el("tr");
+            tr.appendChild(el("td", "mono", d.number));
+            tr.appendChild(el("td", "", d.customer));
+            tr.appendChild(el("td", "num", money(d.amount_cents, d.currency)));
+            tr.appendChild(el("td", "num", String(d.days_overdue)));
+            tr.appendChild(el("td", "", d.stage));
+
+            var td = el("td");
+            var chip = el(
+              "span",
+              "chip " + (d.action === "draft" ? "draft" : d.stage === "escalate" ? "escalate" : "hold"),
+              d.reason_label
+            );
+            td.appendChild(chip);
+            if (d.notes && d.notes.length) {
+              var hint = el("div", "muted", d.notes.join(" · "));
+              hint.style.fontSize = "0.72rem";
+              td.appendChild(hint);
+            }
+            tr.appendChild(td);
+            body.appendChild(tr);
+          });
+        }
+
+        function renderDrafts(drafts) {
+          var wrap = $("drafts");
+          wrap.textContent = "";
+          if (!drafts.length) {
+            wrap.appendChild(
+              el("div", "empty", "No drafts right now. Held invoices show their reason in the report above.")
+            );
+            return;
+          }
+          drafts.forEach(function (d) {
+            var card = el("div", "draft-card");
+
+            var head = el("div", "draft-head");
+            var left = el("div");
+            left.appendChild(el("div", "draft-subject", d.subject));
+            left.appendChild(el("div", "draft-to", "To: " + d.to));
+            head.appendChild(left);
+
+            var meta = el("div", "muted");
+            meta.style.fontSize = "0.75rem";
+            meta.textContent =
+              d.stage + " · " + money(d.amount_cents, "USD") + " · " +
+              d.nudges_so_far + " sent";
+            head.appendChild(meta);
+            card.appendChild(head);
+
+            card.appendChild(el("div", "draft-body", d.body));
+
+            var facts = el("ul", "facts");
+            (d.facts || []).forEach(function (f) {
+              facts.appendChild(el("li", "", f));
+            });
+            card.appendChild(facts);
+
+            var send = el("button", "small", "Approve & send");
+            var status = el("span", "muted");
+            status.style.fontSize = "0.78rem";
+            status.style.marginLeft = "0.6rem";
+            send.addEventListener("click", function () {
+              send.disabled = true;
+              api("/api/drafts/" + encodeURIComponent(d.invoice_id) + "/send", {
+                method: "POST",
+              }).then(function (r) {
+                if (r.status === 200) {
+                  status.textContent =
+                    "Sent via " + r.data.mailer + " (" + r.data.delivery_id + ")";
+                  status.style.color = "var(--signal)";
+                  send.textContent = "Sent";
+                  refresh();
+                } else {
+                  status.textContent =
+                    (r.data.error && r.data.error.message) || "Could not send.";
+                  status.style.color = "#f87171";
+                  send.disabled = false;
+                }
+              });
+            });
+
+            var actions = el("div");
+            actions.appendChild(send);
+            actions.appendChild(status);
+            card.appendChild(actions);
+            wrap.appendChild(card);
+          });
+        }
+
+        function renderNudges(rows) {
+          var wrap = $("nudges");
+          wrap.textContent = "";
+          if (!rows.length) {
+            wrap.appendChild(
+              el("div", "empty", "Nothing sent yet. Nudges appear here once you approve a draft.")
+            );
+            return;
+          }
+          var table = el("table");
+          var thead = el("thead");
+          var headRow = el("tr");
+          ["Invoice", "Stage", "To", "Subject", "Sent on"].forEach(function (h, i) {
+            headRow.appendChild(el("th", i === 4 ? "num" : "", h));
+          });
+          thead.appendChild(headRow);
+          table.appendChild(thead);
+
+          var tbody = el("tbody");
+          rows.forEach(function (n) {
+            var tr = el("tr");
+            tr.appendChild(el("td", "mono", n.invoice_id));
+            tr.appendChild(el("td", "", n.stage));
+            tr.appendChild(el("td", "mono", n.to_email));
+            tr.appendChild(el("td", "", n.subject));
+            tr.appendChild(el("td", "num", n.sent_on));
+            tbody.appendChild(tr);
+          });
+          table.appendChild(tbody);
+          wrap.appendChild(table);
+        }
+
+        // --- Refresh --------------------------------------------------------
+
+        function refresh() {
+          api("/api/ledger").then(function (r) {
+            if (r.status === 401) return signOut();
+            if (r.status !== 200) return;
+            $("ledger-summary").textContent =
+              r.data.invoices + " invoices · " + r.data.customers + " customers";
+          });
+
+          api("/api/report").then(function (r) {
+            if (r.status !== 200) {
+              $("metrics").textContent = "";
+              $("aging-wrap").textContent = "";
+              $("decisions").textContent = "";
+              var message =
+                (r.data.error && r.data.error.message) || "No report yet.";
+              return note("report-note", message, false);
+            }
+            $("report-note").textContent = "";
+            renderMetrics(r.data.metrics);
+            renderAging(r.data.aging);
+            renderDecisions(r.data.decisions);
+          });
+
+          api("/api/drafts").then(function (r) {
+            if (r.status === 200) renderDrafts(r.data.drafts);
+          });
+
+          api("/api/nudges").then(function (r) {
+            if (r.status === 200) renderNudges(r.data.nudges);
+          });
+        }
+
+        // --- Wire up --------------------------------------------------------
+
+        $("tab-login").addEventListener("click", function () {
+          setMode("login");
+        });
+        $("tab-signup").addEventListener("click", function () {
+          setMode("signup");
+        });
+        // Submit, not click: Enter works everywhere and password managers can
+        // see a real form. preventDefault stops the page reloading.
+        $("auth-form").addEventListener("submit", function (e) {
+          e.preventDefault();
+          submitAuth();
+        });
+        $("logout").addEventListener("click", signOut);
+        $("load-demo").addEventListener("click", function () {
+          importLedger({ demo: true }, "demo ledger");
+        });
+        $("import").addEventListener("click", function () {
+          var customers = $("customers").value.trim();
+          var invoices = $("invoices").value.trim();
+          if (!customers || !invoices)
+            return note(
+              "ledger-note",
+              "Paste both CSVs, or click Load demo.",
+              false
+            );
+          importLedger({ customers_csv: customers, invoices_csv: invoices });
+        });
+
+        setMode("login");
+
+        api("/api/me").then(function (r) {
+          if (r.status === 200) {
+            $("whoami").textContent = r.data.account.email;
+            enter();
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

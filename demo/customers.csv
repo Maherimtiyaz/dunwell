@@ -1,0 +1,7 @@
+id,name,email,tier,opted_out,relationship_note
+c1,Ava Chen,ava@lumenlabs.io,strategic,false,Renewed twice; prefers a warm tone
+c2,Marcus Reed,marcus@brightpath.co,standard,false,
+c3,Priya Nair,priya@northgate.example,standard,false,
+c4,Dana Whitfield,dana@vela.example,standard,true,Asked to stop automated emails
+c5,Sam Okafor,,standard,false,No billing contact on file
+c6,Iris Patel,iris@cobalt.example,standard,false,

@@ -1,0 +1,26 @@
+# Normalize line endings in the repository. The index always stores LF;
+# core.autocrlf handles the checkout side per machine.
+* text=auto eol=lf
+
+# Python and config files: LF only, no ambiguity.
+*.py    text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.cfg   text eol=lf
+*.toml  text eol=lf
+*.json  text eol=lf
+*.csv   text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+
+# Treat everything else as binary so no transformation is ever attempted.
+*.db    binary
+*.sqlite binary
+*.ico   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.pdf   binary
+*.zip   binary

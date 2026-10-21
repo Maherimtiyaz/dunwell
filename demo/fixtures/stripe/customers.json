@@ -1,0 +1,38 @@
+{
+  "object": "list",
+  "url": "/v1/customers",
+  "has_more": false,
+  "data": [
+    {
+      "id": "cus_ava",
+      "object": "customer",
+      "name": "Ava Chen",
+      "email": "ava@lumenlabs.io",
+      "metadata": {
+        "tier": "strategic",
+        "relationship_note": "Renewed twice; prefers a warm tone"
+      }
+    },
+    {
+      "id": "cus_marcus",
+      "object": "customer",
+      "name": "Marcus Reed",
+      "email": "marcus@brightpath.co",
+      "metadata": {}
+    },
+    {
+      "id": "cus_dana",
+      "object": "customer",
+      "name": "Dana Whitfield",
+      "email": "dana@vela.example",
+      "metadata": { "opted_out": "true" }
+    },
+    {
+      "id": "cus_noemail",
+      "object": "customer",
+      "name": "Sam Okafor",
+      "email": null,
+      "metadata": {}
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "QueryResponse": {
+    "Invoice": [
+      {
+        "Id": "501",
+        "DocNumber": "QBO-1001",
+        "CustomerRef": { "value": "12", "name": "Ava Chen" },
+        "TotalAmt": 1200.0,
+        "Balance": 1200.0,
+        "CurrencyRef": { "value": "USD" },
+        "TxnDate": "2026-09-01",
+        "DueDate": "2026-09-30"
+      },
+      {
+        "Id": "502",
+        "DocNumber": "QBO-1002",
+        "CustomerRef": { "value": "13", "name": "Marcus Reed" },
+        "TotalAmt": 550.0,
+        "Balance": 0,
+        "CurrencyRef": { "value": "USD" },
+        "TxnDate": "2026-09-15",
+        "DueDate": "2026-10-15"
+      },
+      {
+        "Id": "503",
+        "DocNumber": "QBO-1003",
+        "CustomerRef": { "value": "99", "name": "Priya Nair" },
+        "TotalAmt": 800.0,
+        "Balance": 800.0,
+        "CurrencyRef": { "value": "USD" },
+        "TxnDate": "2026-08-15",
+        "DueDate": "2026-09-14",
+        "PrivateNote": "DISPUTED: scope disagreement on line items"
+      },
+      {
+        "Id": "504",
+        "DocNumber": "QBO-1004",
+        "CustomerRef": { "value": "14", "name": "Sam Okafor" },
+        "TotalAmt": 500.0,
+        "Balance": 500.0,
+        "TxnDate": "2026-09-10",
+        "DueDate": "2026-10-10"
+      },
+      {
+        "Id": "505",
+        "DocNumber": "QBO-1005",
+        "CustomerRef": { "value": "12", "name": "Ava Chen" },
+        "TotalAmt": 450.0,
+        "Balance": 450.0,
+        "CurrencyRef": { "value": "USD" },
+        "TxnDate": "2026-08-01",
+        "DueDate": "2026-08-31"
+      }
+    ],
+    "maxResults": 5,
+    "startPosition": 1
+  },
+  "time": "2026-10-16T09:00:00.000-07:00"
+}

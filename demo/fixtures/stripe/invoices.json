@@ -1,0 +1,113 @@
+{
+  "object": "list",
+  "url": "/v1/invoices",
+  "has_more": false,
+  "data": [
+    {
+      "id": "in_open1",
+      "object": "invoice",
+      "number": "STR-2001",
+      "customer": "cus_ava",
+      "status": "open",
+      "currency": "usd",
+      "amount_due": 120000,
+      "total": 120000,
+      "created": 1788220800,
+      "due_date": 1790726400,
+      "status_transitions": {}
+    },
+    {
+      "id": "in_open2",
+      "object": "invoice",
+      "number": "STR-2002",
+      "customer": "cus_marcus",
+      "status": "open",
+      "currency": "usd",
+      "amount_due": 45000,
+      "total": 45000,
+      "created": 1785542400,
+      "due_date": 1788134400,
+      "status_transitions": {}
+    },
+    {
+      "id": "in_paid",
+      "object": "invoice",
+      "number": "STR-2003",
+      "customer": "cus_marcus",
+      "status": "paid",
+      "currency": "usd",
+      "amount_due": 0,
+      "total": 55000,
+      "created": 1789430400,
+      "due_date": 1792022400,
+      "status_transitions": { "paid_at": 1791590400 }
+    },
+    {
+      "id": "in_uncollectible",
+      "object": "invoice",
+      "number": "STR-2004",
+      "customer": null,
+      "customer_name": "Priya Nair",
+      "customer_email": "priya@northgate.example",
+      "status": "uncollectible",
+      "currency": "usd",
+      "amount_due": 80000,
+      "total": 80000,
+      "created": 1786752000,
+      "due_date": 1789344000,
+      "status_transitions": {}
+    },
+    {
+      "id": "in_draft",
+      "object": "invoice",
+      "number": "STR-2005",
+      "customer": "cus_ava",
+      "status": "draft",
+      "currency": "usd",
+      "amount_due": 99000,
+      "total": 99000,
+      "created": 1789430400,
+      "due_date": 1792022400,
+      "status_transitions": {}
+    },
+    {
+      "id": "in_no_due",
+      "object": "invoice",
+      "number": "STR-2006",
+      "customer": "cus_noemail",
+      "status": "open",
+      "currency": "usd",
+      "amount_due": 50000,
+      "total": 50000,
+      "created": 1788998400,
+      "due_date": null,
+      "status_transitions": {}
+    },
+    {
+      "id": "in_void",
+      "object": "invoice",
+      "number": "STR-2007",
+      "customer": "cus_ava",
+      "status": "void",
+      "currency": "usd",
+      "amount_due": 33000,
+      "total": 33000,
+      "created": 1788998400,
+      "due_date": 1791590400,
+      "status_transitions": {}
+    },
+    {
+      "id": "in_opted_out",
+      "object": "invoice",
+      "number": "STR-2008",
+      "customer": "cus_dana",
+      "status": "open",
+      "currency": "usd",
+      "amount_due": 30000,
+      "total": 30000,
+      "created": 1788566400,
+      "due_date": 1791158400,
+      "status_transitions": {}
+    }
+  ]
+}

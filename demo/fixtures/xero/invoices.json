@@ -1,0 +1,87 @@
+{
+  "Invoices": [
+    {
+      "InvoiceID": "x1",
+      "InvoiceNumber": "X-1001",
+      "Type": "ACCREC",
+      "Contact": {
+        "ContactID": "c1",
+        "Name": "Ava Chen",
+        "EmailAddress": "ava@lumenlabs.io"
+      },
+      "DateString": "2026-09-01T00:00:00",
+      "DueDateString": "2026-09-30T00:00:00",
+      "Total": 1200.0,
+      "AmountDue": 1200.0,
+      "CurrencyCode": "USD",
+      "Status": "AUTHORISED"
+    },
+    {
+      "InvoiceID": "x2",
+      "InvoiceNumber": "X-1002",
+      "Type": "ACCREC",
+      "Contact": {
+        "ContactID": "c2",
+        "Name": "Marcus Reed",
+        "EmailAddress": "marcus@brightpath.co"
+      },
+      "DateString": "2026-09-15T00:00:00",
+      "DueDateString": "2026-10-15T00:00:00",
+      "Total": 550.0,
+      "AmountDue": 0,
+      "CurrencyCode": "USD",
+      "Status": "PAID",
+      "FullyPaidOnDate": "2026-10-10T00:00:00"
+    },
+    {
+      "InvoiceID": "x3",
+      "InvoiceNumber": "X-1003",
+      "Type": "ACCPAY",
+      "Contact": { "ContactID": "c9", "Name": "A Vendor" },
+      "DateString": "2026-09-01T00:00:00",
+      "DueDateString": "2026-09-30T00:00:00",
+      "Total": 300.0,
+      "AmountDue": 300.0,
+      "Status": "AUTHORISED"
+    },
+    {
+      "InvoiceID": "x4",
+      "InvoiceNumber": "X-1004",
+      "Type": "ACCREC",
+      "Contact": { "ContactID": "c1", "Name": "Ava Chen" },
+      "DateString": "2026-09-20T00:00:00",
+      "DueDateString": "2026-10-20T00:00:00",
+      "Total": 990.0,
+      "AmountDue": 990.0,
+      "Status": "DRAFT"
+    },
+    {
+      "InvoiceID": "x5",
+      "InvoiceNumber": "X-1005",
+      "Type": "ACCREC",
+      "Contact": { "ContactID": "c5", "Name": "Sam Okafor" },
+      "DateString": "2026-09-10T00:00:00",
+      "Total": 500.0,
+      "AmountDue": 500.0,
+      "CurrencyCode": "USD",
+      "Status": "AUTHORISED"
+    },
+    {
+      "InvoiceID": "x6",
+      "InvoiceNumber": "X-1006",
+      "Type": "ACCREC",
+      "Contact": {
+        "ContactID": "c6",
+        "Name": "Priya Nair",
+        "EmailAddress": "priya@northgate.example"
+      },
+      "DateString": "2026-08-15T00:00:00",
+      "DueDateString": "2026-09-14T00:00:00",
+      "Total": 800.0,
+      "AmountDue": 800.0,
+      "CurrencyCode": "USD",
+      "Status": "AUTHORISED",
+      "Reference": "DISPUTED: scope disagreement on line items"
+    }
+  ]
+}
