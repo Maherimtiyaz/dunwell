@@ -24,3 +24,6 @@ out/
 .env
 .env.*
 !.env.example
+
+# Tool artifacts (Playwright MCP page snapshots)
+.playwright-mcp/
