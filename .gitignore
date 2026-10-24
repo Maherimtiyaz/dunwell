@@ -27,3 +27,8 @@ out/
 
 # Tool artifacts (Playwright MCP page snapshots)
 .playwright-mcp/
+
+# Launch copy stays local. The posts link back to this repo, so publishing the
+# drafts would let a reader find the scripted version of the thread they are
+# currently reading. DEMO_RECORDING.md is fine to publish; this is not.
+/launch/POSTS.md
