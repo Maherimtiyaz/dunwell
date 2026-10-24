@@ -71,6 +71,25 @@ _SEND_ROUTE = re.compile(r"^/api/drafts/([^/]+)/send$")
 DASHBOARD_PATH = Path(__file__).resolve().parent / "static" / "dashboard.html"
 
 
+def default_company() -> Company:
+    """The company profile baked into drafts for accounts that set none.
+
+    Every draft body carries the name, reply-to, and payment link, so these
+    values are visible to the customer. They are read from the environment
+    first, because a placeholder shipping to a real customer looks like a
+    phishing mail rather than a billing notice.
+    """
+    name = os.environ.get("DUNWELL_COMPANY_NAME", "Northwind Studio")
+    return Company(
+        name=name,
+        reply_to=os.environ.get("DUNWELL_REPLY_TO", "billing@northwind.example"),
+        signature=os.environ.get("DUNWELL_SIGNATURE", f"{name} - Billing"),
+        payment_link=os.environ.get(
+            "DUNWELL_PAYMENT_LINK", "https://pay.northwind.example/inv"
+        ),
+    )
+
+
 class RateLimiter:
     """Fixed-window per-key limiter, best-effort and in-memory."""
 
@@ -131,12 +150,7 @@ class Application:
         self.auth = auth
         self.mailer = mailer
         self.static_dir = Path(static_dir) if static_dir else None
-        self.company = company or Company(
-            name="Northwind Studio",
-            reply_to="billing@northwind.example",
-            signature="Northwind Studio - Billing",
-            payment_link="https://pay.northwind.example/inv",
-        )
+        self.company = company or default_company()
         self.waitlist_limiter = waitlist_limiter or RateLimiter(10, 60)
         self._now = now or date.today
 
@@ -180,6 +194,12 @@ class Application:
             return self._waitlist_signup(headers, body, client_ip)
         if method == "GET" and path == "/api/waitlist/count":
             return json_response({"ok": True, "count": self.store.waitlist_count()})
+
+        # Public, side-effect free liveness probe. PaaS health checks need a
+        # route that exists in the app: some platforms answer /robots.txt
+        # themselves, so a probe pointed there never reaches us.
+        if method == "GET" and path == "/health":
+            return json_response({"ok": True, "status": "up"})
 
         if method == "POST" and path == "/api/signup":
             return self._signup(headers, body)
@@ -258,13 +278,27 @@ class Application:
             return None
         return self.auth.resolve(morsel.value)
 
-    def _set_cookie(self, token: str, max_age: int) -> str:
-        return (
-            f"{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}"
-        )
+    def _is_secure(self, headers: dict[str, str]) -> bool:
+        """True when the request reached us over HTTPS.
 
-    def _clear_cookie(self) -> str:
-        return f"{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+        Behind a TLS-terminating proxy the socket is plain HTTP, so the only
+        signal is the header the proxy sets. Without it the cookie would
+        travel in clear text on a public deploy.
+        """
+        proto = headers.get("x-forwarded-proto", "")
+        return proto.split(",")[0].strip().lower() == "https"
+
+    def _set_cookie(self, token: str, max_age: int, secure: bool = False) -> str:
+        flags = "Path=/; HttpOnly; SameSite=Lax"
+        if secure:
+            flags += "; Secure"
+        return f"{SESSION_COOKIE}={token}; {flags}; Max-Age={max_age}"
+
+    def _clear_cookie(self, secure: bool = False) -> str:
+        flags = "Path=/; HttpOnly; SameSite=Lax"
+        if secure:
+            flags += "; Secure"
+        return f"{SESSION_COOKIE}=; {flags}; Max-Age=0"
 
     def _signup(self, headers: dict[str, str], body: bytes) -> Response:
         payload = _json_body(body)
@@ -283,7 +317,11 @@ class Application:
             return error_response(status, str(exc), str(exc))
         return json_response(
             {"ok": True, "account": {"email": session.email, "id": session.account_id}},
-            **{"Set-Cookie": self._set_cookie(session.token, self.auth.ttl_seconds)},
+            **{
+                "Set-Cookie": self._set_cookie(
+                    session.token, self.auth.ttl_seconds, self._is_secure(headers)
+                )
+            },
         )
 
     def _login(self, headers: dict[str, str], body: bytes) -> Response:
@@ -293,14 +331,21 @@ class Application:
         )
         return json_response(
             {"ok": True, "account": {"email": session.email, "id": session.account_id}},
-            **{"Set-Cookie": self._set_cookie(session.token, self.auth.ttl_seconds)},
+            **{
+                "Set-Cookie": self._set_cookie(
+                    session.token, self.auth.ttl_seconds, self._is_secure(headers)
+                )
+            },
         )
 
     def _logout(self, headers: dict[str, str]) -> Response:
         session = self._session(headers)
         if session is not None:
             self.auth.logout(session.token)
-        return json_response({"ok": True}, **{"Set-Cookie": self._clear_cookie()})
+        return json_response(
+            {"ok": True},
+            **{"Set-Cookie": self._clear_cookie(self._is_secure(headers))},
+        )
 
     def _me(self, headers: dict[str, str]) -> Response:
         session = self._session(headers)

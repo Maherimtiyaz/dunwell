@@ -12,7 +12,7 @@ import pytest
 
 from dunwell.auth import AuthService
 from dunwell.mailer import DryRunMailer
-from dunwell.serve import build_app, resolve_static_dir
+from dunwell.serve import _env_port, build_app, resolve_static_dir
 from dunwell.service import Application, make_server
 from dunwell.store import Store
 
@@ -39,6 +39,19 @@ def test_explicit_static_dir_is_used_when_it_exists(tmp_path) -> None:
 
 def test_explicit_static_dir_that_is_missing_falls_back_to_none(tmp_path) -> None:
     assert resolve_static_dir(str(tmp_path / "nope")) is None
+
+
+def test_port_comes_from_the_environment(monkeypatch) -> None:
+    """PaaS platforms set PORT; without it the app answers on the wrong port."""
+    monkeypatch.setenv("PORT", "10000")
+    assert _env_port() == 10000
+
+    monkeypatch.delenv("PORT", raising=False)
+    assert _env_port() == 8906
+
+    # A junk value must not crash the boot; fall back to the default.
+    monkeypatch.setenv("PORT", "not-a-number")
+    assert _env_port() == 8906
 
 
 def test_build_app_finds_the_sibling_landing_page(tmp_path, monkeypatch) -> None:

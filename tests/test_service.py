@@ -24,7 +24,7 @@ from dunwell.auth import (
 )
 from dunwell.core import Reason, Stage
 from dunwell.mailer import DryRunMailer, MailMessage, build_mailer
-from dunwell.service import Application, RateLimiter, make_server
+from dunwell.service import Application, RateLimiter, default_company, make_server
 from dunwell.store import Store, StoreError
 
 AS_OF = date(2026, 10, 16)
@@ -327,6 +327,45 @@ def test_signup_sets_cookie_and_me_reads_it(app) -> None:
 
     r = call(app, "GET", "/api/me", cookie=f"dunwell_session={token}")
     assert body_of(r)["account"]["email"] == "own@acme.test"
+
+
+def test_session_cookie_is_secure_only_behind_https(app) -> None:
+    """A plain-HTTP request gets no Secure flag; a proxied HTTPS one does."""
+    r = call(app, "POST", "/api/signup", {"email": "s@acme.test", "password": "hunter2hunter2"})
+    assert "Secure" not in r.headers["Set-Cookie"]
+
+    r = app.handle(
+        "POST",
+        "/api/signup",
+        {"X-Forwarded-Proto": "https"},
+        json.dumps({"email": "t@acme.test", "password": "hunter2hunter2"}).encode(),
+    )
+    assert "Secure" in r.headers["Set-Cookie"]
+
+
+def test_logout_clears_the_cookie_with_the_same_secure_flag(app) -> None:
+    r = app.handle(
+        "POST", "/api/logout", {"X-Forwarded-Proto": "https"}, b""
+    )
+    cookie = r.headers["Set-Cookie"]
+    assert "Max-Age=0" in cookie and "Secure" in cookie
+
+
+def test_health_endpoint_is_public_and_side_effect_free(app) -> None:
+    r = call(app, "GET", "/health")
+    assert r.status == 200
+    assert body_of(r) == {"ok": True, "status": "up"}
+
+
+def test_default_company_comes_from_the_environment(monkeypatch) -> None:
+    monkeypatch.setenv("DUNWELL_COMPANY_NAME", "Acme Studio")
+    monkeypatch.setenv("DUNWELL_REPLY_TO", "billing@acme.test")
+    monkeypatch.setenv("DUNWELL_PAYMENT_LINK", "https://pay.acme.test/inv")
+    company = default_company()
+    assert company.name == "Acme Studio"
+    assert company.reply_to == "billing@acme.test"
+    assert company.signature == "Acme Studio - Billing"
+    assert company.payment_link == "https://pay.acme.test/inv"
 
 
 def test_protected_routes_require_session(app) -> None:

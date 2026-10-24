@@ -68,4 +68,17 @@ jobs:
           # Tolerate any JSON whitespace so a serializer change cannot break CI.
           curl -fsS http://127.0.0.1:8999/api/waitlist/count \
             | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true'
+          # The health route is what a PaaS platform probes.
+          curl -fsS http://127.0.0.1:8999/health \
+            | grep -Eq '"status"[[:space:]]*:[[:space:]]*"up"'
+          kill $SERVER_PID
+
+      - name: Service honours the PORT environment variable
+        # PaaS platforms set PORT and expect the app to bind it. A regression
+        # here is a 502 in production that no other check would catch.
+        run: |
+          PORT=8998 python -m dunwell.serve --db /tmp/ci2.db &
+          SERVER_PID=$!
+          sleep 2
+          curl -fsS http://127.0.0.1:8998/health | grep -q '"up"'
           kill $SERVER_PID

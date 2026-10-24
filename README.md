@@ -74,6 +74,7 @@ All responses are `{ "ok": true, ... }` or `{ "ok": false, "error": { "message",
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
+| `GET` | `/health` | — | liveness probe: `{ok, status}` |
 | `POST` | `/api/waitlist` | — | `{email, source}` → `{ok, count, already?}` |
 | `GET` | `/api/waitlist/count` | — | `{ok, count}` |
 | `POST` | `/api/signup` | — | `{email, password}` → sets session cookie |
@@ -238,3 +239,24 @@ bundled dashboard is present, and the service starts and answers on
 
 Every variable the project reads is listed in `.env.example`. Nothing is
 required to run the CLI, the service, or the tests offline.
+
+Two of them matter before a public deploy:
+
+- `HOST` / `PORT` — the service reads both from the environment, so a PaaS
+  platform that sets `PORT` works without extra flags. `--host` / `--port`
+  still override them.
+- `DUNWELL_COMPANY_NAME`, `DUNWELL_REPLY_TO`, `DUNWELL_PAYMENT_LINK` — these
+  land in every draft body and are customer-visible. The shipped defaults are
+  placeholders; set them or the customer receives "Northwind Studio - Billing".
+
+## Deployment
+
+`deploy.md` is the full guide: free-tier platform comparison, the two
+deployables (service and landing), DNS, email delivery, and a verification
+checklist to run after every deploy.
+
+Short version: the **service** needs a persistent filesystem (it stores
+accounts, ledgers, and nudge history in SQLite), and the **landing** is
+static and can go on GitHub Pages. They are separate deployables and can run
+on different hosts — see [deploy.md](deploy.md).
+

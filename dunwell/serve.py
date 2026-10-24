@@ -56,6 +56,20 @@ def resolve_static_dir(explicit: str | None = None) -> Path | None:
     return None
 
 
+def _env_port() -> int:
+    """Read PORT from the environment, ignoring anything unusable."""
+    raw = os.environ.get("PORT", "").strip()
+    if not raw:
+        return 8906
+    try:
+        port = int(raw)
+    except ValueError:
+        print(f"dunwell: PORT={raw!r} is not a number; using 8906", file=sys.stderr)
+        return 8906
+    # 0 asks the OS for a free port, which is legal and useful for tests.
+    return port if 0 <= port <= 65535 else 8906
+
+
 def build_app(db_path: str, *, static_dir: str | None = None) -> Application:
     """Assemble the application from the environment and a database path."""
     store = Store(db_path)
@@ -73,8 +87,10 @@ def main(argv: list[str] | None = None) -> int:
         prog="dunwell serve",
         description="Serve the Dunwell dashboard, landing page, and API.",
     )
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8906)
+    # PaaS platforms set PORT and expect a bind on 0.0.0.0, not 127.0.0.1.
+    # The flags still win, so an explicit --port always beats the environment.
+    parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=_env_port())
     parser.add_argument(
         "--db",
         default=os.environ.get("DUNWELL_DB", "dunwell.db"),
