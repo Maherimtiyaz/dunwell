@@ -11,8 +11,10 @@ Then press **Reload**. Edits take effect only after a reload.
 
 Before the first reload, on a **Bash console**:
 
-    mkvirtualenv --python=/usr/bin/python3.11 dunwell
     git clone https://github.com/Maherimtiyaz/dunwell.git ~/dunwell
+
+No virtualenv and no ``pip install`` are needed: the service is standard
+library only. Just configure the web app for Python 3.11 or newer.
 
 Free accounts get a persistent disk, which is what makes this a good home for
 the waitlist: the SQLite file survives restarts and redeploys, unlike most
