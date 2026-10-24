@@ -268,3 +268,22 @@ accounts, ledgers, and nudge history in SQLite), and the **landing** is
 static and can go on GitHub Pages. They are separate deployables and can run
 on different hosts — see [deploy.md](deploy.md).
 
+### Transports
+
+The service runs two ways from one `Application` object:
+
+| Transport | Entry point | Use it for |
+| --- | --- | --- |
+| HTTP server | `python -m dunwell.serve` | local development, any host that gives you a process |
+| WSGI | `dunwell.wsgi:application` | PythonAnywhere, Gunicorn, uWSGI, most managed Python hosts |
+
+```bash
+gunicorn dunwell.wsgi:application        # any WSGI host
+python -m dunwell.serve --port 8906      # local
+```
+
+PythonAnywhere imports a callable rather than running a process, so it uses
+the WSGI path; `deploy/pythonanywhere_wsgi.py` is a ready-to-paste config.
+Both transports share the same routes, the same CORS rules, and the same
+tests, so a behaviour verified locally holds on the host.
+

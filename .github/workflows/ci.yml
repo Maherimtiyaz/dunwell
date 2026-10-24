@@ -82,3 +82,39 @@ jobs:
           sleep 2
           curl -fsS http://127.0.0.1:8998/health | grep -q '"up"'
           kill $SERVER_PID
+
+      - name: WSGI transport works (the PythonAnywhere path)
+        # Production does not run `dunwell.serve`; it imports
+        # `dunwell.wsgi:application`. Exercise the real socket, not just the
+        # application object, or a header/body framing bug ships unseen.
+        run: |
+          DUNWELL_DB=/tmp/wsgi.db \
+          DUNWELL_CORS_ORIGINS=https://example.github.io \
+            python deploy/wsgi_smoke.py --port 8997 &
+          SERVER_PID=$!
+          sleep 2
+
+          curl -fsS http://127.0.0.1:8997/health | grep -q '"up"'
+
+          # A signup must persist through the adapter.
+          curl -fsS -X POST http://127.0.0.1:8997/api/waitlist \
+            -H "Content-Type: application/json" \
+            -d '{"email":"ci-wsgi@example.com"}' \
+            | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true'
+          curl -fsS http://127.0.0.1:8997/api/waitlist/count \
+            | grep -Eq '"count"[[:space:]]*:[[:space:]]*1'
+
+          # The preflight that a separately hosted landing page depends on.
+          status=$(curl -s -o /dev/null -w "%{http_code}" -X OPTIONS \
+            http://127.0.0.1:8997/api/waitlist \
+            -H "Origin: https://example.github.io" \
+            -H "Access-Control-Request-Method: POST")
+          test "$status" = "204"
+
+          # An origin that is not allowlisted must be refused.
+          status=$(curl -s -o /dev/null -w "%{http_code}" -X OPTIONS \
+            http://127.0.0.1:8997/api/waitlist \
+            -H "Origin: https://evil.example")
+          test "$status" = "403"
+
+          kill $SERVER_PID

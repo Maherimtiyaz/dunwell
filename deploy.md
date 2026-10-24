@@ -18,7 +18,7 @@ service runs API-only.
 
 1. [What actually needs to change before deploying](#1-what-actually-needs-to-change-before-deploying)
 2. [Free-tier options at a glance](#2-free-tier-options-at-a-glance)
-3. [Option A — PythonAnywhere (recommended, both apps, free)](#3-option-a--pythonanywhere-recommended-both-apps-free)
+3. [Option A — PythonAnywhere (service, free, persistent disk)](#3-option-a--pythonanywhere-service-free-persistent-disk)
 4. [Option B — Render (service, free)](#4-option-b--render-service-free)
 5. [Option C — Railway (service, free, persistent disk)](#5-option-c--railway-service-free-persistent-disk)
 6. [Option D — Koyeb (service, free)](#6-option-d--koyeb-service-free)
@@ -143,12 +143,17 @@ Verified against current platform documentation (October 2026).
    Render blocks 25/465/587. Dunwell's `SmtpMailer` uses `smtplib` over
    port 587, so it needs either an allowed port or an HTTP email API.
 
-**Recommended pairing:**
+**This deployment:**
 
-- **Service** → Railway (persistent volume) or PythonAnywhere (persistent home dir).
-- **Landing** → GitHub Pages / Netlify / Cloudflare Pages (free, fast, static).
-- **Email** → an HTTP email API (Resend, Brevo, Postmark) rather than raw SMTP.
-  This sidesteps the port-587 blocks entirely. See [section 10](#10-email-delivery-that-actually-sends).
+- **Service** → PythonAnywhere (persistent home dir, free). See
+  [section 3](#3-option-a--pythonanywhere-service-free-persistent-disk).
+- **Landing** → GitHub Pages (static, free). It posts sign-ups to the service,
+  which owns the only copy of the waitlist. See
+  [section 7](#7-option-e--github-pages-landing-only).
+- **Email** → off for now. Drafts are recorded in dry-run mode. When you start
+  sending for real, use an HTTP email API (Resend, Brevo, Postmark) rather than
+  raw SMTP; free tiers block port 587. See
+  [section 10](#10-email-delivery-that-actually-sends).
 
 **Cost summary:** both can run at **$0**. The only paid step you may want is a
 domain name (~$10/year) — and even that is optional, since every platform
@@ -156,11 +161,12 @@ above provides a free subdomain.
 
 ---
 
-## 3. Option A — PythonAnywhere (recommended, both apps, free)
+## 3. Option A — PythonAnywhere (service, free, persistent disk)
 
 PythonAnywhere is the only free option that gives you **a persistent
-filesystem**, which Dunwell needs. It also lets you run the landing and the
-service as two web apps under one account.
+filesystem**, which Dunwell needs. In this deployment it runs the **service**
+only; the landing page is static and lives on GitHub Pages, which is free,
+faster, and cannot lose data because it stores none.
 
 **Free tier limits:** 1 web app, 1 worker, 512 MiB disk, 100 CPU-seconds/day,
 custom domain ❌, outbound internet allowlisted (HTTP/S only, plus Gmail SMTP).
@@ -176,71 +182,67 @@ custom domain ❌, outbound internet allowlisted (HTTP/S only, plus Gmail SMTP).
 
 ### 3b. Upload the code
 
-Free accounts have no SSH, so use the web file browser or `git` from a console.
-Open **Consoles** → new Bash console:
+Free accounts have no SSH, so clone from a Bash console
+(**Consoles → New console → Bash**):
 
 ```bash
 cd ~
-git clone https://github.com/<you>/dunwell.git
+git clone https://github.com/Maherimtiyaz/dunwell.git
 cd dunwell
 ```
 
-If the repo is private, use a deploy key or a personal access token:
+The repository is public, so no credentials are needed. For a private fork,
+use a token:
 
 ```bash
 git clone https://<token>@github.com/<you>/dunwell.git
 ```
 
-### 3c. The web app command
+### 3c. Point the WSGI file at the adapter
 
-In the web app's **WSGI configuration file**, PythonAnywhere expects a WSGI
-callable. Dunwell is a `http.server` app, not WSGI, so point the config at a
-tiny adapter that runs the server in a background thread and proxies to it —
-or, simpler and more robust, use the **Bash console to run the process
-directly** and point the web app at it.
+PythonAnywhere imports a WSGI callable; it does not run
+`python -m dunwell.serve`. The repo ships `dunwell/wsgi.py`, which adapts the
+same `Application` object to WSGI, plus `deploy/pythonanywhere_wsgi.py` as a
+ready-made config.
 
-**Simplest working approach** — run it in the console as a daemon:
+Open the **Web** tab and click the **WSGI configuration file** link. It lives
+at `/var/www/<username>_pythonanywhere_com_wsgi.py`. Copy the template over
+it:
 
 ```bash
-cd ~/dunwell
-nohup python -m dunwell.serve --host 127.0.0.1 --port 8906 --db ~/dunwell/data/dunwell.db \
-  >> ~/dunwell/serve.log 2>&1 &
+cat ~/dunwell/deploy/pythonanywhere_wsgi.py \
+  > /var/www/<username>_pythonanywhere_com_wsgi.py
 ```
 
-Then in the web app's WSGI file, proxy to that port:
+Adjust the values at the top if your paths differ, then press **Reload**. There
+is no daemon to babysit and no proxy shim: the web app *is* the service.
 
-```python
-# /var/www/<username>_pythonanywhere_com_wsgi.py
-import os
-os.environ['HTTP_PROXY'] = ''
+What that file sets, and why it matters:
 
-from http.server import SimpleHTTPRequestHandler
-import urllib.request
+| Variable | Value | Why |
+| --- | --- | --- |
+| `DUNWELL_DB` | `~/dunwell/data/dunwell.db` | persistent disk; the waitlist lives here |
+| `DUNWELL_CORS_ORIGINS` | `https://maherimtiyaz.github.io` | lets the GitHub Pages form post here |
+| `DUNWELL_COMPANY_NAME` etc. | your real details | they appear in every draft body |
 
-PORT = 8906
+The service runs API-only in this arrangement, because the landing is served
+by GitHub Pages. `GET /dashboard` still works on the app's own hostname.
 
-def application(environ, start_response):
-    path = environ.get('PATH_INFO', '/')
-    ...
+### 3d. Updating
+
+```bash
+cd ~/dunwell && git pull
 ```
 
-> **Honest recommendation:** PythonAnywhere's WSGI model does not fit a
-> `http.server` app cleanly, and the proxy shim is fiddly. **Use it for the
-> landing page** (which is a natural static-file fit) and use **Railway or
-> Render for the service**, where you control the process directly. The two
-> together are a cleaner result than forcing one platform to do both.
-
-### 3d. If you must run both on PythonAnywhere
-
-Run the **service** in a console as a daemon (as above), and configure the
-**web app** to proxy to it. Run the **landing** on the second free slot using
-the same technique with `--port 8905 --static ~/dunwell-landing`.
+Then press **Reload** on the Web tab. Code changes are not picked up until you
+reload. A pull never touches the database.
 
 ### 3e. Persistence — the whole point
 
 `~/dunwell/data/dunwell.db` lives in your home directory, which is
-**persistent and backed up by PythonAnywhere**. Survives console restarts and
-web app reloads.
+**persistent and backed up by PythonAnywhere**. It survives console restarts
+and web app reloads, which is why sign-ups do not evaporate here the way they
+do on an ephemeral container host.
 
 Watch your quota — 512 MiB is tight. Clean up periodically:
 
