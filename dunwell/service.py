@@ -66,6 +66,9 @@ STATIC_ALLOWLIST = frozenset(
 
 _SEND_ROUTE = re.compile(r"^/api/drafts/([^/]+)/send$")
 
+# The only routes a separately hosted landing page may call cross-origin.
+_CORS_PATHS = frozenset({"/api/waitlist", "/api/waitlist/count"})
+
 # Packaged with the code, not the landing directory: the dashboard works even
 # on an API-only install with no marketing assets next to it.
 DASHBOARD_PATH = Path(__file__).resolve().parent / "static" / "dashboard.html"
@@ -87,6 +90,21 @@ def default_company() -> Company:
         payment_link=os.environ.get(
             "DUNWELL_PAYMENT_LINK", "https://pay.northwind.example/inv"
         ),
+    )
+
+
+def cors_origins_from_env() -> frozenset[str]:
+    """Origins allowed to call the public waitlist routes from a browser.
+
+    A landing page hosted separately (GitHub Pages, Netlify, a custom
+    domain) posts the sign-up form across origins, which the browser only
+    permits when the service answers with the right CORS headers. The list
+    is explicit: an empty set means no cross-origin access at all, which is
+    the safe default for an installation that serves its own landing page.
+    """
+    raw = os.environ.get("DUNWELL_CORS_ORIGINS", "")
+    return frozenset(
+        part.strip().rstrip("/") for part in raw.split(",") if part.strip()
     )
 
 
@@ -151,6 +169,7 @@ class Application:
         self.mailer = mailer
         self.static_dir = Path(static_dir) if static_dir else None
         self.company = company or default_company()
+        self.cors_origins = cors_origins_from_env()
         self.waitlist_limiter = waitlist_limiter or RateLimiter(10, 60)
         self._now = now or date.today
 
@@ -190,10 +209,19 @@ class Application:
         body: bytes,
         client_ip: str,
     ) -> Response:
+        # The waitlist is the only cross-origin surface: a landing page on
+        # another host posts the sign-up form here. Authenticated routes must
+        # never be reachable cross-origin, so CORS is applied to these two
+        # routes only.
+        if method == "OPTIONS" and path in _CORS_PATHS:
+            return self._preflight(headers)
         if method == "POST" and path == "/api/waitlist":
-            return self._waitlist_signup(headers, body, client_ip)
+            return self._cors(headers, self._waitlist_signup(headers, body, client_ip))
         if method == "GET" and path == "/api/waitlist/count":
-            return json_response({"ok": True, "count": self.store.waitlist_count()})
+            return self._cors(
+                headers,
+                json_response({"ok": True, "count": self.store.waitlist_count()}),
+            )
 
         # Public, side-effect free liveness probe. PaaS health checks need a
         # route that exists in the app: some platforms answer /robots.txt
@@ -240,6 +268,45 @@ class Application:
         if method == "GET":
             return self._static(path, headers)
         return error_response(405, "method not allowed", "method_not_allowed")
+
+    # ------------------------------------------------------------------ #
+    # CORS
+    # ------------------------------------------------------------------ #
+
+    def _allowed_origin(self, headers: dict[str, str]) -> str:
+        """The request's Origin, but only when it is explicitly allowed."""
+        origin = headers.get("origin", "").strip().rstrip("/")
+        if not origin or origin not in self.cors_origins:
+            return ""
+        return origin
+
+    def _cors(self, headers: dict[str, str], response: Response) -> Response:
+        origin = self._allowed_origin(headers)
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Vary"] = "Origin"
+        return response
+
+    def _preflight(self, headers: dict[str, str]) -> Response:
+        """Answer a CORS preflight for the waitlist routes.
+
+        A JSON POST is not a "simple" request, so the browser sends OPTIONS
+        first. Without this the sign-up is blocked before it is ever sent.
+        """
+        origin = self._allowed_origin(headers)
+        if not origin:
+            return error_response(403, "origin not allowed", "forbidden_origin")
+        return Response(
+            status=204,
+            body=b"",
+            headers={
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Max-Age": "600",
+                "Vary": "Origin",
+            },
+        )
 
     # ------------------------------------------------------------------ #
     # Waitlist
@@ -672,6 +739,12 @@ class _Handler(BaseHTTPRequestHandler):
         self._dispatch()
 
     def do_PUT(self) -> None:  # noqa: N802
+        self._dispatch()
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        # CORS preflight for the public waitlist routes. Without this method
+        # the base handler answers 501 and a browser blocks the sign-up
+        # before it is ever sent.
         self._dispatch()
 
     def do_HEAD(self) -> None:  # noqa: N802

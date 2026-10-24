@@ -22,7 +22,7 @@ service runs API-only.
 4. [Option B — Render (service, free)](#4-option-b--render-service-free)
 5. [Option C — Railway (service, free, persistent disk)](#5-option-c--railway-service-free-persistent-disk)
 6. [Option D — Koyeb (service, free)](#6-option-d--koyeb-service-free)
-7. [Option E — GitHub Pages + Pages Functions (landing only)](#7-option-e--github-pages--pages-functions-landing-only)
+7. [Option E — GitHub Pages (landing only)](#7-option-e--github-pages-landing-only)
 8. [Option F — Netlify / Cloudflare Pages (landing only)](#8-option-f--netlify--cloudflare-pages-landing-only)
 9. [Domain and DNS](#9-domain-and-dns)
 10. [Email delivery that actually sends](#10-email-delivery-that-actually-sends)
@@ -400,22 +400,18 @@ MAIL_FROM         = billing@yourdomain.com
 
 ---
 
-## 7. Option E — GitHub Pages + Pages Functions (landing only)
+## 7. Option E — GitHub Pages (landing only)
 
 The cheapest way to publish the marketing site, and it gets you a free
-`username.github.io` address. **The waitlist form needs a server** — static
-Pages cannot accept a POST, so you need a Pages Function.
+`username.github.io` address. **The waitlist form needs a server**, and GitHub
+Pages runs no server code, so the form posts to the Dunwell service instead.
 
 ### 7a. Publish the static site
 
-```bash
-cd D:/dunwell-landing
-git remote add origin https://github.com/<you>/dunwell-landing.git
-git push -u origin main
-```
+The landing repo already ships `.github/workflows/pages.yml`, so the site
+deploys on every push to `main`. Turn it on once:
 
-Then on GitHub: **Settings → Pages → Source: Deploy from a branch** →
-branch `main`, folder `/ (root)` → **Save**.
+**Settings → Pages → Source → GitHub Actions.**
 
 Your site is live at `https://<you>.github.io/dunwell-landing/` in about a
 minute.
@@ -425,86 +421,99 @@ minute.
 > `href="/styles.css"` break. The current `index.html` uses relative paths
 > (`styles.css`, `privacy.html`), so it works as-is. Verify after deploy.
 
-### 7b. Add a Pages Function for the waitlist
+### 7b. The waitlist: GitHub Pages cannot run server code
 
-Create `functions/api/waitlist.js` in `D:/dunwell-landing`:
+**GitHub Pages is a static file host.** It has no serverless functions —
+"Pages Functions" is a **Cloudflare** feature, not a GitHub one. A `functions/`
+directory in a GitHub Pages repo is inert; requests to `/api/waitlist` reach
+GitHub's static server and come back `405`/`404`.
 
-```javascript
-export async function onRequestPost({ request, env }) {
-  let email, source = "landing";
-  try {
-    const body = await request.json();
-    email = String(body.email || "").trim().toLowerCase();
-    source = String(body.source || "landing").trim().slice(0, 64);
-  } catch {
-    return json({ ok: false, error: { message: "Bad request", code: "bad_request" } }, 400);
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
-    return json({ ok: false, error: { message: "Please enter a valid email address.", code: "invalid_email" } }, 422);
-  }
-  await env.WAITLIST.add(email);
-  return json({ ok: true, count: Number(await env.WAITLIST.count()) });
-}
+So the landing cannot handle the sign-up itself. Two workable arrangements:
 
-export async function onRequestGet() {
-  return json({ ok: true, count: Number(await env.WAITLIST.count()) });
-}
+**Direct POST to the service (what this repo does).** The page posts the form
+to the deployed Dunwell service, which owns the waitlist table.
 
-function json(payload, status = 200) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "Content-Type": "application/json; charset=utf-8" },
-  });
-}
-```
+1. Set the service's allowlist to this origin:
 
-Then create `functions/_middleware.js` to rate-limit, and bind a **KV
-namespace** named `WAITLIST` (Settings → Functions → KV bindings). GitHub
-Pages Functions support KV with 1000 writes/day free — plenty for a waitlist.
+   ```
+   DUNWELL_CORS_ORIGINS=https://<you>.github.io
+   ```
 
-**Important:** the landing's `index.html` reads the error as a plain string
-(`data.error`), but Dunwell's API returns `error: {message, code}`. If you
-reuse the GitHub Function shape above, update the landing's JS to read
-`data.error.message` so validation errors show properly. See
-[section 11](#11-production-hardening-checklist).
+   The service answers the `OPTIONS` preflight for that origin, and only the
+   public waitlist routes honour CORS. The authenticated API stays
+   same-origin.
+
+2. Set a repository **variable** (Settings → Secrets and variables → Actions →
+   Variables): `DUNWELL_API_URL=https://app.yourdomain.com`. The Pages
+   workflow writes it into `config.js` at deploy time.
+
+3. Verify: submit the form on the live site and confirm the signup appears in
+   the service's `/api/waitlist/count`.
+
+This keeps one authoritative store. It is the recommended arrangement.
+
+**A serverless function on a host that has them.** Cloudflare Pages and
+Netlify both run functions, and either can proxy the sign-up to the service,
+which avoids CORS at the cost of a second platform to manage. See
+[section 8](#8-option-f--netlify--cloudflare-pages-landing-only).
+
+> **Note:** an earlier draft of this guide described a GitHub "Pages Function".
+> That was wrong, and shipping it left the form dead on the live site. The
+> repo now uses the direct-POST arrangement above.
 
 ### 7c. Add a CNAME for a custom domain
 
 Create `CNAME` in `D:/dunwell-landing` containing your domain, then point a
-CNAME at `username.github.io`. GitHub provisions TLS automatically.
+CNAME at `username.github.io`. GitHub provisions TLS automatically. Add the
+custom domain to `DUNWELL_CORS_ORIGINS` too, and drop the `github.io` origin
+if you no longer serve from it.
+
 
 ---
 
 ## 8. Option F — Netlify / Cloudflare Pages (landing only)
 
-Both host static sites free with global CDN and automatic TLS.
+Both host static sites free with global CDN and automatic TLS. Unlike GitHub
+Pages, **both can also run a serverless function**, so the sign-up can stay
+same-origin and proxy to the service. That avoids CORS, at the cost of a
+second platform to manage.
 
 ### 8a. Netlify
 
 1. **Add new site → Import an existing project** → pick the repo.
 2. Build settings: **Build command** empty, **Publish directory** `.`.
-3. Netlify serves the static files. The waitlist form needs a **Netlify
-   Function**:
+3. Point the form at `/.netlify/functions/waitlist` (set
+   `window.DUNWELL_API_URL` to that path, or just leave it empty and keep the
+   function on the same origin). The function is a thin proxy — the service
+   owns storage:
 
 ```javascript
 // netlify/functions/waitlist.js
 exports.handler = async (event) => {
-  const { email, source = "landing" } = JSON.parse(event.body || "{}");
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return { statusCode: 422, body: JSON.stringify({ ok: false, error: { message: "Invalid email", code: "invalid_email" } }) };
-  }
-  // store in a Netlify Blobs / KV / Supabase bucket
-  return { statusCode: 200, body: JSON.stringify({ ok: true, count: 1 }) };
+  const upstream = await fetch(`${process.env.DUNWELL_API_URL}/api/waitlist`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: event.body || "{}",
+  });
+  return {
+    statusCode: upstream.status,
+    headers: { "Content-Type": "application/json" },
+    body: await upstream.text(),
+  };
 };
 ```
 
-Then point the form at `/.netlify/functions/waitlist` in `index.html`.
+Set `DUNWELL_API_URL` in **Site settings → Environment variables**. No
+`DUNWELL_CORS_ORIGINS` entry is needed, because the browser never talks to the
+service directly.
 
 ### 8b. Cloudflare Pages
 
-Same shape: connect the repo, build command empty, output directory `/`.
-For the waitlist, use a **Pages Function** with a KV binding — Cloudflare KV
-is generous on the free tier and reads are unmetered.
+Same shape: connect the repo, build command empty, output directory `/`. Put
+the proxy in a `functions/api/waitlist.js` file and read the service URL from
+`context.env.DUNWELL_API_URL`. Cloudflare Pages Functions are what people
+usually mean by "Pages Functions" — they exist here, not on GitHub Pages.
+
 
 ---
 
@@ -669,6 +678,10 @@ Run through this before pointing a real customer at it.
       and the landing's own `server.py` was changed to return the Dunwell
       contract, so the two backends are interchangeable*
 - [ ] **Set a real `DUNWELL_STATIC_DIR`** if deploying the landing separately.
+- [ ] **Set `DUNWELL_CORS_ORIGINS`** if the landing page is hosted on a
+      different origin (GitHub Pages, Netlify, a custom domain). Without it the
+      form's preflight is refused and sign-ups fail silently in the browser.
+      Only the public waitlist routes honour it.
 - [ ] **Add a link from the landing to the dashboard** so early-access users can
       reach the app.
 - [ ] **Confirm rate limits suit you.** The waitlist limiter is 10 requests
@@ -904,6 +917,14 @@ curl -s $BASE/api/waitlist/count
 
 # 4. Auth is enforced
 curl -s -o /dev/null -w "%{http_code}\n" $BASE/api/me      # expect 401
+
+# 4b. CORS preflight from the landing origin (only if it is hosted separately)
+#     Expect 204 and an Access-Control-Allow-Origin line naming the origin.
+curl -s -i -X OPTIONS $BASE/api/waitlist \
+  -H "Origin: https://<you>.github.io" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: content-type" \
+  | grep -i "HTTP/\|access-control-allow-origin"
 
 # 5. Sign up and get a session
 curl -s -c /tmp/c.txt -X POST $BASE/api/signup \

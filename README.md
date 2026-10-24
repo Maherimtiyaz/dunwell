@@ -249,6 +249,14 @@ Two of them matter before a public deploy:
   land in every draft body and are customer-visible. The shipped defaults are
   placeholders; set them or the customer receives "Northwind Studio - Billing".
 
+One more if the landing page is hosted separately:
+
+- `DUNWELL_CORS_ORIGINS` — a comma-separated allowlist of origins permitted to
+  call the public waitlist routes from a browser. Only `POST /api/waitlist`
+  and `GET /api/waitlist/count` honour it; the authenticated API is never
+  reachable cross-origin. Empty (the default) disables cross-origin access.
+
+
 ## Deployment
 
 `deploy.md` is the full guide: free-tier platform comparison, the two

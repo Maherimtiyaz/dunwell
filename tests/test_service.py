@@ -24,7 +24,13 @@ from dunwell.auth import (
 )
 from dunwell.core import Reason, Stage
 from dunwell.mailer import DryRunMailer, MailMessage, build_mailer
-from dunwell.service import Application, RateLimiter, default_company, make_server
+from dunwell.service import (
+    Application,
+    RateLimiter,
+    cors_origins_from_env,
+    default_company,
+    make_server,
+)
 from dunwell.store import Store, StoreError
 
 AS_OF = date(2026, 10, 16)
@@ -366,6 +372,75 @@ def test_default_company_comes_from_the_environment(monkeypatch) -> None:
     assert company.reply_to == "billing@acme.test"
     assert company.signature == "Acme Studio - Billing"
     assert company.payment_link == "https://pay.acme.test/inv"
+
+
+def test_cors_origins_are_parsed_from_a_comma_separated_list(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "DUNWELL_CORS_ORIGINS",
+        " https://dunwell.app/ , https://www.dunwell.app ,, ",
+    )
+    assert cors_origins_from_env() == frozenset(
+        {"https://dunwell.app", "https://www.dunwell.app"}
+    )
+
+
+def test_cors_origins_default_to_none(monkeypatch) -> None:
+    """An app that serves its own landing page allows no cross-origin calls."""
+    monkeypatch.delenv("DUNWELL_CORS_ORIGINS", raising=False)
+    assert cors_origins_from_env() == frozenset()
+
+
+def test_preflight_is_answered_for_an_allowed_origin(app) -> None:
+    app.cors_origins = frozenset({"https://dunwell.app"})
+    r = app.handle(
+        "OPTIONS",
+        "/api/waitlist",
+        {"Origin": "https://dunwell.app", "Access-Control-Request-Method": "POST"},
+    )
+    assert r.status == 204
+    assert r.headers["Access-Control-Allow-Origin"] == "https://dunwell.app"
+    assert "POST" in r.headers["Access-Control-Allow-Methods"]
+    assert "Content-Type" in r.headers["Access-Control-Allow-Headers"]
+
+
+def test_preflight_from_an_unknown_origin_is_refused(app) -> None:
+    app.cors_origins = frozenset({"https://dunwell.app"})
+    r = app.handle("OPTIONS", "/api/waitlist", {"Origin": "https://evil.test"})
+    assert r.status == 403
+    assert "Access-Control-Allow-Origin" not in r.headers
+
+
+def test_signup_carries_cors_headers_for_an_allowed_origin(app) -> None:
+    app.cors_origins = frozenset({"https://dunwell.app"})
+    r = app.handle(
+        "POST",
+        "/api/waitlist",
+        {"Origin": "https://dunwell.app", "Content-Type": "application/json"},
+        b'{"email":"cors@test.example"}',
+    )
+    assert r.status == 200
+    assert r.headers["Access-Control-Allow-Origin"] == "https://dunwell.app"
+    assert r.headers["Vary"] == "Origin"
+
+
+def test_no_cors_headers_when_no_origins_are_configured(app) -> None:
+    app.cors_origins = frozenset()
+    r = app.handle(
+        "POST",
+        "/api/waitlist",
+        {"Origin": "https://dunwell.app", "Content-Type": "application/json"},
+        b'{"email":"none@test.example"}',
+    )
+    assert r.status == 200
+    assert "Access-Control-Allow-Origin" not in r.headers
+
+
+def test_authenticated_routes_never_get_cors_headers(app) -> None:
+    """Only the public waitlist is cross-origin; the API must stay same-origin."""
+    app.cors_origins = frozenset({"https://dunwell.app"})
+    r = app.handle("GET", "/api/drafts", {"Origin": "https://dunwell.app"})
+    assert r.status == 401
+    assert "Access-Control-Allow-Origin" not in r.headers
 
 
 def test_protected_routes_require_session(app) -> None:

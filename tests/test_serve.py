@@ -118,6 +118,51 @@ def test_landing_static_still_served_alongside_dashboard(app, tmp_path) -> None:
     assert app.handle("GET", "/dashboard").status == 200
 
 
+def test_cors_preflight_over_a_real_socket(tmp_path) -> None:
+    """A separately hosted landing page depends on this exact exchange.
+
+    The unit tests call Application.handle directly, which bypasses the
+    transport. BaseHTTPRequestHandler answers 501 for any method it has no
+    do_* hook for, so without an explicit do_OPTIONS the browser's preflight
+    fails before the sign-up is ever sent.
+    """
+    store = Store(tmp_path / "cors.db")
+    app = Application(
+        store=store,
+        auth=AuthService(store),
+        mailer=DryRunMailer(),
+    )
+    app.cors_origins = frozenset({"https://dunwell.app"})
+    server = make_server(app, "127.0.0.1", 0)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        conn = HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request(
+            "OPTIONS",
+            "/api/waitlist",
+            headers={
+                "Origin": "https://dunwell.app",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        res = conn.getresponse()
+        res.read()
+        conn.close()
+
+        assert res.status == 204, "the transport must dispatch OPTIONS, not answer 501"
+        assert res.getheader("Access-Control-Allow-Origin") == "https://dunwell.app"
+        assert "POST" in res.getheader("Access-Control-Allow-Methods")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        store.close()
+
+
 def test_full_dashboard_flow_over_a_real_socket(tmp_path) -> None:
     """End to end: sign up, load the demo ledger, send a draft, see history."""
     store = Store(tmp_path / "flow.db")
