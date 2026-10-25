@@ -49,7 +49,7 @@ from typing import Callable
 from urllib.parse import parse_qs, urlsplit
 
 from .agent import run
-from .auth import AuthError, AuthService, Session, validate_email
+from .auth import AuthError, AuthService, Session, normalize_email, validate_email
 from .core import REASON_LABELS, Company
 from .io import parse_customers_csv, parse_invoices_csv, render_markdown
 from .mailer import MailMessage, Mailer
@@ -58,6 +58,15 @@ from .store import Store, StoreError
 MAX_BODY_BYTES = 1_000_000
 SESSION_COOKIE = "dunwell_session"
 DEMO_DIR = Path(__file__).resolve().parent.parent / "demo"
+
+# Sent on every response. They live here rather than in the socket handler
+# because a WSGI deployment never runs that handler, and used to ship without
+# them entirely - the same code answering with different headers depending on
+# how it was hosted.
+SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "strict-origin-when-cross-origin"),
+)
 
 # Static filenames the public server is willing to read, and nothing else.
 STATIC_ALLOWLIST = frozenset(
@@ -91,6 +100,24 @@ def default_company() -> Company:
             "DUNWELL_PAYMENT_LINK", "https://pay.northwind.example/inv"
         ),
     )
+
+
+SIGNUP_MODES = frozenset({"open", "closed"})
+
+
+def signup_mode_from_env() -> str:
+    """Whether ``POST /api/signup`` creates accounts.
+
+    Defaults to ``closed``: the route is unauthenticated, so an open signup on
+    a public host is an open door to the product - and, once SMTP is
+    configured, an open door to sending mail from the operator's account.
+
+    A typo (``DUNWELL_SIGNUP_MODE=opne``) resolves to ``closed`` rather than
+    to whatever the typo was, because the failure mode of guessing wrong is a
+    public instance.
+    """
+    raw = (os.environ.get("DUNWELL_SIGNUP_MODE") or "closed").strip().lower()
+    return raw if raw in SIGNUP_MODES else "closed"
 
 
 def cors_origins_from_env() -> frozenset[str]:
@@ -162,6 +189,8 @@ class Application:
         static_dir: str | Path | None = None,
         company: Company | None = None,
         waitlist_limiter: RateLimiter | None = None,
+        auth_limiter: RateLimiter | None = None,
+        signup_mode: str | None = None,
         now: Callable[[], date] | None = None,
     ) -> None:
         self.store = store
@@ -171,6 +200,11 @@ class Application:
         self.company = company or default_company()
         self.cors_origins = cors_origins_from_env()
         self.waitlist_limiter = waitlist_limiter or RateLimiter(10, 60)
+        # Login runs scrypt on every attempt, so an unthrottled endpoint is
+        # both a password-guessing oracle and a way to occupy the only worker.
+        self.auth_limiter = auth_limiter or RateLimiter(10, 60)
+        mode = (signup_mode or signup_mode_from_env()).strip().lower()
+        self.signup_mode = mode if mode in SIGNUP_MODES else "closed"
         self._now = now or date.today
 
     # ------------------------------------------------------------------ #
@@ -230,9 +264,9 @@ class Application:
             return json_response({"ok": True, "status": "up"})
 
         if method == "POST" and path == "/api/signup":
-            return self._signup(headers, body)
+            return self._signup(headers, body, client_ip)
         if method == "POST" and path == "/api/login":
-            return self._login(headers, body)
+            return self._login(headers, body, client_ip)
         if method == "POST" and path == "/api/logout":
             return self._logout(headers)
         if method == "GET" and path == "/api/me":
@@ -367,8 +401,45 @@ class Application:
             flags += "; Secure"
         return f"{SESSION_COOKIE}=; {flags}; Max-Age=0"
 
-    def _signup(self, headers: dict[str, str], body: bytes) -> Response:
+    def _limit_auth(self, scope: str, client_ip: str, email: str) -> Response | None:
+        """Throttle credential attempts, by address and by account.
+
+        Two keys because they stop different attacks: the address key stops
+        one host fanning out across many accounts, the email key stops a
+        distributed guess at one account. Returning None means "carry on".
+
+        ``scope`` separates signup from login. Without it, creating an account
+        spends the login budget for the same address and the same email, so a
+        brand new customer can be locked out of the account they just made.
+        """
+        keys = [f"{scope}:ip:{client_ip}"]
+        if email:
+            keys.append(f"{scope}:email:{email}")
+        for key in keys:
+            if not self.auth_limiter.allow(key):
+                return error_response(
+                    429, "too many attempts, try again shortly", "rate_limited"
+                )
+        return None
+
+    def _signup(
+        self, headers: dict[str, str], body: bytes, client_ip: str
+    ) -> Response:
+        # Checked before the body is parsed: a closed instance should not spend
+        # work validating payloads it will refuse anyway.
+        if self.signup_mode != "open":
+            return error_response(
+                403,
+                "new signups are closed; ask us for an account",
+                "signup_closed",
+            )
+
         payload = _json_body(body)
+        email = normalize_email(str(payload.get("email", "")))
+        limited = self._limit_auth("signup", client_ip, email)
+        if limited is not None:
+            return limited
+
         password = str(payload.get("password", ""))
         try:
             session = self.auth.signup(
@@ -391,8 +462,15 @@ class Application:
             },
         )
 
-    def _login(self, headers: dict[str, str], body: bytes) -> Response:
+    def _login(
+        self, headers: dict[str, str], body: bytes, client_ip: str
+    ) -> Response:
         payload = _json_body(body)
+        email = normalize_email(str(payload.get("email", "")))
+        limited = self._limit_auth("login", client_ip, email)
+        if limited is not None:
+            return limited
+
         session = self.auth.login(
             str(payload.get("email", "")), str(payload.get("password", ""))
         )
@@ -704,11 +782,19 @@ class _Handler(BaseHTTPRequestHandler):
     sys_version = ""
 
     def _dispatch(self) -> None:
-        length = int(self.headers.get("Content-Length") or 0)
+        raw_length = self.headers.get("Content-Length") or "0"
+        try:
+            length = int(raw_length)
+        except ValueError:
+            # A junk Content-Length used to escape as an uncaught ValueError
+            # and print a traceback. Answer it instead.
+            self._write(error_response(400, "invalid Content-Length", "bad_request"))
+            return
+        if length < 0:
+            self._write(error_response(400, "invalid Content-Length", "bad_request"))
+            return
         if length > MAX_BODY_BYTES:
-            self._write(
-                Response(status=413, body=b'{"ok":false,"error":{"code":"too_large"}}')
-            )
+            self._write(error_response(413, "request body too large", "too_large"))
             return
         body = self.rfile.read(length) if length else b""
         client_ip = self.client_address[0] if self.client_address else "0.0.0.0"
@@ -722,8 +808,8 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(response.status)
             self.send_header("Content-Type", response.content_type)
             self.send_header("Content-Length", str(len(response.body)))
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+            for name, value in SECURITY_HEADERS:
+                self.send_header(name, value)
             for key, value in response.headers.items():
                 self.send_header(key, value)
             self.end_headers()

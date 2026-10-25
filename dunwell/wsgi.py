@@ -32,7 +32,12 @@ import threading
 from http import HTTPStatus
 from typing import Any, Callable, Iterable
 
-from .service import Application
+from .service import (
+    MAX_BODY_BYTES,
+    SECURITY_HEADERS,
+    Application,
+    error_response,
+)
 from .serve import build_app
 
 # Statuses that must never carry a body or a Content-Length.
@@ -60,19 +65,49 @@ def create_app() -> Application:
     return build_app(db_path, static_dir=static_dir)
 
 
-def client_ip(environ: dict[str, Any]) -> str:
+def _trusted_hops() -> int:
+    """How many reverse proxies sit in front of the app (default 1)."""
+    raw = (os.environ.get("DUNWELL_TRUSTED_PROXY_HOPS") or "1").strip()
+    try:
+        hops = int(raw)
+    except ValueError:
+        return 1
+    return hops if hops >= 0 else 1
+
+
+def client_ip(environ: dict[str, Any], trusted_hops: int | None = None) -> str:
     """The caller's address, honouring the proxy header when present.
 
     Managed hosts terminate TLS at their edge and forward the real client
-    address. Using it matters: the waitlist rate limiter keys on it, so a
-    shared proxy address would let one visitor exhaust everyone's budget.
+    address. Using it matters: the waitlist and login rate limiters key on it,
+    so a shared proxy address would let one visitor exhaust everyone's budget.
+
+    The address is read from the **right** of ``X-Forwarded-For``, not the
+    left. A proxy appends the address it saw, so the rightmost entry is the
+    one our own proxy observed; everything to its left was supplied by the
+    caller and is free to be forged. Taking the leftmost entry let a client
+    pick its own rate-limit bucket by sending a fresh header per request.
+
+    ``DUNWELL_TRUSTED_PROXY_HOPS`` says how many proxies to skip, for a stack
+    deeper than one (CDN in front of a load balancer, say). Set it to 0 to
+    ignore the header entirely and trust only the socket address.
     """
+    hops = _trusted_hops() if trusted_hops is None else trusted_hops
+    remote = environ.get("REMOTE_ADDR") or "127.0.0.1"
+    if hops <= 0:
+        return remote
+
     forwarded = environ.get("HTTP_X_FORWARDED_FOR", "")
-    if forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
-    return environ.get("REMOTE_ADDR") or "127.0.0.1"
+    if not forwarded:
+        return remote
+    parts = [part.strip() for part in forwarded.split(",") if part.strip()]
+    if not parts:
+        return remote
+    # A chain shorter than the configured depth means the header is not the
+    # shape we expect; the leftmost entry is then the only one that can be a
+    # client address.
+    index = -hops if hops <= len(parts) else 0
+    return parts[index] or remote
 
 
 def request_headers(environ: dict[str, Any]) -> dict[str, str]:
@@ -122,22 +157,30 @@ class WsgiAdapter:
         except (TypeError, ValueError):
             length = 0
 
-        body = b""
-        if length > 0:
-            stream = environ.get("wsgi.input")
-            if stream is not None:
-                body = stream.read(length)
+        if length > MAX_BODY_BYTES:
+            # Refuse before touching wsgi.input. Reading first and rejecting
+            # afterwards buffers the whole payload in the worker - the socket
+            # transport checks the length before reading for exactly this
+            # reason, and a 512 MB worker does not survive a few 100 MB POSTs.
+            response = error_response(413, "request body too large", "too_large")
+        else:
+            body = b""
+            if length > 0:
+                stream = environ.get("wsgi.input")
+                if stream is not None:
+                    body = stream.read(length)
 
-        response = self.app.handle(
-            environ.get("REQUEST_METHOD", "GET"),
-            request_target(environ),
-            request_headers(environ),
-            body,
-            client_ip(environ),
-        )
+            response = self.app.handle(
+                environ.get("REQUEST_METHOD", "GET"),
+                request_target(environ),
+                request_headers(environ),
+                body,
+                client_ip(environ),
+            )
 
         headers: list[tuple[str, str]] = [
             ("Content-Type", response.content_type),
+            *SECURITY_HEADERS,
         ]
         for key, value in response.headers.items():
             if key.lower() in _HOP_BY_HOP:

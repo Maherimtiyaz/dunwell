@@ -70,7 +70,12 @@ def _env_port() -> int:
     return port if 0 <= port <= 65535 else 8906
 
 
-def build_app(db_path: str, *, static_dir: str | None = None) -> Application:
+def build_app(
+    db_path: str,
+    *,
+    static_dir: str | None = None,
+    signup_mode: str | None = None,
+) -> Application:
     """Assemble the application from the environment and a database path."""
     store = Store(db_path)
     mailer = build_mailer()
@@ -79,6 +84,7 @@ def build_app(db_path: str, *, static_dir: str | None = None) -> Application:
         auth=AuthService(store),
         mailer=mailer,
         static_dir=resolve_static_dir(static_dir),
+        signup_mode=signup_mode,
     )
 
 
@@ -113,6 +119,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  landing     {static}")
     print(f"  database    {args.db}")
     print(f"  mailer      {app.mailer.mode}")
+    if app.signup_mode != "open":
+        print(
+            "  signup      closed (set DUNWELL_SIGNUP_MODE=open for self-serve,\n"
+            "              or create an account with: python -m dunwell.admin)"
+        )
+    else:
+        print("  signup      open (anyone can create an account)")
     if app.mailer.mode != "smtp":
         print(
             "  note: drafts are recorded, not delivered. Set DUNWELL_MAIL_MODE=smtp\n"

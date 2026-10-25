@@ -52,6 +52,20 @@ os.environ.setdefault(
     "DUNWELL_CORS_ORIGINS", "https://maherimtiyaz.github.io"
 )
 
+# Self-serve signup stays closed on a public host: /api/signup needs no
+# session, and an account can send mail from your SMTP credentials. Create
+# accounts yourself, from a Bash console:
+#
+#     DUNWELL_DB=~/dunwell/data/dunwell.db python -m dunwell.admin --email ...
+#
+# Flip this to "open" when the product is actually on sale.
+os.environ.setdefault("DUNWELL_SIGNUP_MODE", "closed")
+
+# How many reverse proxies sit in front of the app. Used to pick the real
+# client address out of X-Forwarded-For for the rate limiters; 1 matches
+# PythonAnywhere's proxy. Raise it only if you put another proxy in front.
+os.environ.setdefault("DUNWELL_TRUSTED_PROXY_HOPS", "1")
+
 # Customer-visible copy. These strings appear in every drafted email, so they
 # must be real before you send anything to a customer.
 os.environ.setdefault("DUNWELL_COMPANY_NAME", "Northwind Studio")

@@ -17,7 +17,7 @@ import pytest
 
 from dunwell.auth import AuthService
 from dunwell.mailer import DryRunMailer
-from dunwell.service import Application, RateLimiter
+from dunwell.service import MAX_BODY_BYTES, Application, RateLimiter
 from dunwell.store import Store
 from dunwell.wsgi import WsgiAdapter, client_ip, create_app
 
@@ -190,17 +190,49 @@ def test_cookie_header_reaches_the_application(app) -> None:
 # ---------------------------------------------------------------------- #
 
 
-def test_client_ip_prefers_the_first_forwarded_address() -> None:
+def test_client_ip_uses_the_rightmost_forwarded_address() -> None:
+    """The leftmost entry is caller-supplied, so it cannot be trusted.
+
+    A proxy appends the address it saw. Everything left of that was sent by
+    the client itself, and a client that controls the value controls its own
+    rate-limit bucket - one fresh header per request and the limiter is
+    decorative.
+    """
     environ = {
         "REMOTE_ADDR": "10.0.0.1",
-        "HTTP_X_FORWARDED_FOR": "203.0.113.7, 10.0.0.1",
+        "HTTP_X_FORWARDED_FOR": "1.2.3.4, 203.0.113.7",
     }
     assert client_ip(environ) == "203.0.113.7"
+
+
+def test_client_ip_ignores_a_forged_leading_entry() -> None:
+    """The spoof that motivated the change: rotate the header, keep the budget."""
+    seen = set()
+    for forged in ("198.51.100.1", "198.51.100.2", "198.51.100.3"):
+        environ = {
+            "REMOTE_ADDR": "10.0.0.1",
+            "HTTP_X_FORWARDED_FOR": f"{forged}, 203.0.113.7",
+        }
+        seen.add(client_ip(environ))
+    assert seen == {"203.0.113.7"}
+
+
+def test_client_ip_honours_a_configured_hop_count() -> None:
+    environ = {
+        "REMOTE_ADDR": "10.0.0.1",
+        "HTTP_X_FORWARDED_FOR": "203.0.113.7, 10.0.0.9, 10.0.0.10",
+    }
+    # Two proxies: the client address is two from the right.
+    assert client_ip(environ, trusted_hops=2) == "10.0.0.9"
+    # Zero means "ignore the header", which is right when there is no proxy.
+    assert client_ip(environ, trusted_hops=0) == "10.0.0.1"
 
 
 def test_client_ip_falls_back_to_the_socket_address() -> None:
     assert client_ip({"REMOTE_ADDR": "10.0.0.1"}) == "10.0.0.1"
     assert client_ip({}) == "127.0.0.1"
+    # An empty or whitespace-only header must not produce an empty key.
+    assert client_ip({"REMOTE_ADDR": "10.0.0.1", "HTTP_X_FORWARDED_FOR": " "}) == "10.0.0.1"
 
 
 def test_rate_limit_counts_the_real_client_not_the_proxy(app) -> None:
@@ -258,3 +290,101 @@ def test_create_app_uses_the_configured_database(monkeypatch, tmp_path) -> None:
         assert application.store.waitlist_count() == 0
     finally:
         application.store.close()
+
+
+# ---------------------------------------------------------------------- #
+# Request size: refuse before buffering
+# ---------------------------------------------------------------------- #
+
+
+class _CountingStream:
+    """A request body that records how much of it was actually read."""
+
+    def __init__(self, size: int) -> None:
+        self.size = size
+        self.consumed = 0
+
+    def read(self, n: int = -1) -> bytes:
+        take = self.size if n < 0 else min(n, self.size)
+        self.consumed += take
+        return b"x" * take
+
+
+def test_oversized_body_is_refused_without_reading_it(app) -> None:
+    """The cap must be applied before wsgi.input is touched.
+
+    Reading first and rejecting afterwards is the bug this covers: the bytes
+    are already in the worker's memory, so a handful of concurrent large POSTs
+    kills a 512 MB process long before the application gets to say no.
+    """
+    stream = _CountingStream(MAX_BODY_BYTES + 1)
+    captured: dict[str, object] = {}
+
+    def start_response(status, response_headers, exc_info=None):
+        captured["status"] = status
+        captured["headers"] = response_headers
+
+    environ = {
+        "REQUEST_METHOD": "POST",
+        "PATH_INFO": "/api/waitlist",
+        "QUERY_STRING": "",
+        "CONTENT_LENGTH": str(MAX_BODY_BYTES + 1),
+        "CONTENT_TYPE": "application/json",
+        "REMOTE_ADDR": "203.0.113.7",
+        "wsgi.input": stream,
+    }
+
+    body = b"".join(WsgiAdapter(app)(environ, start_response))
+
+    assert str(captured["status"]).startswith("413")
+    assert stream.consumed == 0, "the body must not be buffered to reject it"
+    assert json.loads(body)["error"]["code"] == "too_large"
+
+
+def test_body_at_the_limit_is_still_accepted(app) -> None:
+    """The boundary itself must not be rejected."""
+    payload = b'{"email":"limit@test.example"}'
+    assert len(payload) < MAX_BODY_BYTES
+    status, _, _ = call(
+        app,
+        "POST",
+        "/api/waitlist",
+        headers={"Content-Type": "application/json"},
+        body=payload,
+    )
+    assert status.startswith("200")
+
+
+# ---------------------------------------------------------------------- #
+# Security headers: identical on both transports
+# ---------------------------------------------------------------------- #
+
+
+def test_security_headers_are_present(app) -> None:
+    """These used to be added by the socket handler only.
+
+    A WSGI deployment therefore answered without them, so the same code had a
+    different security posture depending on how it was hosted.
+    """
+    _, headers, _ = call(app, "GET", "/health")
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+
+
+def test_security_headers_survive_a_bodyless_response(app) -> None:
+    """A 204 carries no Content-Length, but must still carry the headers."""
+    app.cors_origins = frozenset({"https://dunwell.app"})
+    status, headers, body = call(
+        app,
+        "OPTIONS",
+        "/api/waitlist",
+        headers={
+            "Origin": "https://dunwell.app",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert status.startswith("204")
+    assert body == b""
+    assert "Content-Length" not in headers
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert headers["Access-Control-Allow-Origin"] == "https://dunwell.app"

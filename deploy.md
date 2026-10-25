@@ -223,7 +223,19 @@ What that file sets, and why it matters:
 | --- | --- | --- |
 | `DUNWELL_DB` | `~/dunwell/data/dunwell.db` | persistent disk; the waitlist lives here |
 | `DUNWELL_CORS_ORIGINS` | `https://maherimtiyaz.github.io` | lets the GitHub Pages form post here |
+| `DUNWELL_SIGNUP_MODE` | `closed` | `POST /api/signup` needs no session, and an account can send mail; leave it closed on a public host |
+| `DUNWELL_TRUSTED_PROXY_HOPS` | `1` | reads the real client address from `X-Forwarded-For` for the rate limiters |
 | `DUNWELL_COMPANY_NAME` etc. | your real details | they appear in every draft body |
+
+With signup closed, create accounts from a Bash console on the host:
+
+```bash
+cd ~/dunwell
+DUNWELL_DB=~/dunwell/data/dunwell.db python -m dunwell.admin --email you@studio.test
+```
+
+It prompts for the password. That is also the concierge onboarding: you make
+the account, hand over the credentials, and nobody else can create one.
 
 The service runs API-only in this arrangement, because the landing is served
 by GitHub Pages. `GET /dashboard` still works on the app's own hostname.

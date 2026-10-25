@@ -17,10 +17,16 @@ subreddit feed.
 The dashboard needs a signed-in account before it shows anything. Create it
 off-camera so the recording starts on the product, not a signup form.
 
+Self-serve signup is closed by default, so open it for this local run:
+
 ```powershell
 cd D:\dunwell
+$env:DUNWELL_SIGNUP_MODE = "open"
 python -m dunwell.serve --port 8906
 ```
+
+(On a real deployment, leave it closed and create the account with
+`python -m dunwell.admin --email ...` instead.)
 
 Open <http://127.0.0.1:8906/dashboard> and:
 

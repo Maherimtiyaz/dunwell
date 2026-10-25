@@ -249,7 +249,37 @@ Two of them matter before a public deploy:
   land in every draft body and are customer-visible. The shipped defaults are
   placeholders; set them or the customer receives "Northwind Studio - Billing".
 
-One more if the landing page is hosted separately:
+### Access control
+
+- `DUNWELL_SIGNUP_MODE` — `closed` (default) or `open`. Closed means
+  `POST /api/signup` answers `403 signup_closed` and accounts are created by
+  the operator. Keep it closed on any host that is reachable from the
+  internet: the route needs no session, and an account can send mail from your
+  SMTP credentials. A misspelled value resolves to `closed`.
+- `DUNWELL_TRUSTED_PROXY_HOPS` — how many reverse proxies sit in front of the
+  app, used to pick the client address out of `X-Forwarded-For` for the
+  rate limiters. Default `1`. `0` ignores the header and uses the socket
+  address.
+
+Create an account while signup is closed:
+
+```bash
+python -m dunwell.admin --email owner@studio.test
+# prompts for the password; pass --db to match DUNWELL_DB on the host
+```
+
+The password is prompted rather than passed as a flag so it does not land in
+shell history or the process list.
+
+### Rate limits
+
+`POST /api/login` and `POST /api/signup` are throttled per address and per
+account (10 attempts a minute each, in memory). The waitlist has its own
+budget, so exhausting one does not block the other.
+
+### Cross-origin
+
+If the landing page is hosted separately:
 
 - `DUNWELL_CORS_ORIGINS` — a comma-separated allowlist of origins permitted to
   call the public waitlist routes from a browser. Only `POST /api/waitlist`
