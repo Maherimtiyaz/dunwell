@@ -260,8 +260,15 @@ class Application:
         # Public, side-effect free liveness probe. PaaS health checks need a
         # route that exists in the app: some platforms answer /robots.txt
         # themselves, so a probe pointed there never reaches us.
+        #
+        # It also reports whether self-serve signup is open. The dashboard is
+        # served from this host and otherwise offers a "Create account" tab on
+        # an instance that will refuse it with 403 - the first thing a new
+        # customer sees would be a form that cannot work.
         if method == "GET" and path == "/health":
-            return json_response({"ok": True, "status": "up"})
+            return json_response(
+                {"ok": True, "status": "up", "signup": self.signup_mode}
+            )
 
         if method == "POST" and path == "/api/signup":
             return self._signup(headers, body, client_ip)

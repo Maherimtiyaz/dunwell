@@ -82,7 +82,7 @@ def call(
 def test_health_answers_with_a_complete_wsgi_response(app) -> None:
     status, headers, body = call(app, "GET", "/health")
     assert status.startswith("200")
-    assert json.loads(body) == {"ok": True, "status": "up"}
+    assert json.loads(body) == {"ok": True, "status": "up", "signup": "open"}
     # Without a Content-Length the server must chunk or close; either way the
     # client cannot tell how much body to expect.
     assert headers["Content-Length"] == str(len(body))

@@ -74,7 +74,7 @@ All responses are `{ "ok": true, ... }` or `{ "ok": false, "error": { "message",
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/health` | — | liveness probe: `{ok, status}` |
+| `GET` | `/health` | - | liveness probe: `{ok, status, signup}` |
 | `POST` | `/api/waitlist` | — | `{email, source}` → `{ok, count, already?}` |
 | `GET` | `/api/waitlist/count` | — | `{ok, count}` |
 | `POST` | `/api/signup` | — | `{email, password}` → sets session cookie |

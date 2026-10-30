@@ -430,11 +430,11 @@
       <!-- Auth ------------------------------------------------------------ -->
       <section class="card" id="auth">
         <h2 id="auth-title">Sign in</h2>
-        <p class="sub">
+        <p class="sub" id="auth-sub">
           One account per business. Passwords are scrypt-hashed locally; nothing
           leaves this machine unless you enable SMTP.
         </p>
-        <div class="tabs">
+        <div class="tabs" id="auth-tabs">
           <button class="ghost small" id="tab-login">Sign in</button>
           <button class="ghost small" id="tab-signup">Create account</button>
         </div>
@@ -938,6 +938,17 @@
         });
 
         setMode("login");
+
+        // Self-serve signup can be closed on a public host, in which case
+        // /api/signup answers 403. Offering the tab anyway would show a new
+        // customer a form that cannot work, so ask the service and hide it.
+        api("/health").then(function (r) {
+          if (r.status === 200 && r.data.signup === "closed") {
+            $("auth-tabs").style.display = "none";
+            $("auth-sub").textContent =
+              "Accounts are created by the operator. Sign in with the email and password you were sent.";
+          }
+        });
 
         api("/api/me").then(function (r) {
           if (r.status === 200) {

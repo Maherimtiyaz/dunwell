@@ -76,6 +76,21 @@ def test_signup_mode_is_case_insensitive(monkeypatch) -> None:
     assert signup_mode_from_env() == "open"
 
 
+def test_health_reports_the_signup_mode(store) -> None:
+    """The dashboard reads this to decide whether to offer "Create account".
+
+    Without it, a customer on a closed instance is shown a tab that answers
+    403 - the first screen of the product would be a dead end.
+    """
+    def health(app):
+        return json.loads(app.handle("GET", "/health", {}, b"", "203.0.113.7").body)
+
+    assert health(make_app(store, signup_mode="closed"))["signup"] == "closed"
+    assert health(make_app(store, signup_mode="open"))["signup"] == "open"
+    # Liveness checks still see what they came for.
+    assert health(make_app(store))["status"] == "up"
+
+
 # ---------------------------------------------------------------------- #
 # The gate
 # ---------------------------------------------------------------------- #

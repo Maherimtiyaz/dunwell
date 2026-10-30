@@ -360,7 +360,7 @@ def test_logout_clears_the_cookie_with_the_same_secure_flag(app) -> None:
 def test_health_endpoint_is_public_and_side_effect_free(app) -> None:
     r = call(app, "GET", "/health")
     assert r.status == 200
-    assert body_of(r) == {"ok": True, "status": "up"}
+    assert body_of(r) == {"ok": True, "status": "up", "signup": "open"}
 
 
 def test_default_company_comes_from_the_environment(monkeypatch) -> None:
