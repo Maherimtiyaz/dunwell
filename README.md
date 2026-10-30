@@ -298,6 +298,10 @@ accounts, ledgers, and nudge history in SQLite), and the **landing** is
 static and can go on GitHub Pages. They are separate deployables and can run
 on different hosts — see [deploy.md](deploy.md).
 
+`launch/ACCESS.md` covers what happens after the deploy: how a waitlist signup
+becomes an account, what the handover looks like, and what is still missing
+before you charge for it.
+
 ### Transports
 
 The service runs two ways from one `Application` object:
