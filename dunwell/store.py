@@ -90,9 +90,13 @@ CREATE TABLE IF NOT EXISTS nudges (
 );
 
 CREATE TABLE IF NOT EXISTS waitlist (
-    email      TEXT PRIMARY KEY COLLATE NOCASE,
-    source     TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    email       TEXT PRIMARY KEY COLLATE NOCASE,
+    source      TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    -- NULL until the welcome email is claimed. Keeping the timestamp makes a
+    -- failed send retryable on the next signup without mailing the same
+    -- address twice after a successful one.
+    welcomed_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id);
@@ -147,7 +151,20 @@ class Store:
         self._conn.execute("PRAGMA secure_delete = ON")
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
         self._restrict_permissions()
+
+    def _migrate(self) -> None:
+        """Bring a database created by an older build up to the schema.
+
+        ``CREATE TABLE IF NOT EXISTS`` is a no-op on an existing table, so a
+        column added after the first deploy needs an explicit ALTER.
+        """
+        waitlist_columns = {
+            row["name"] for row in self._conn.execute("PRAGMA table_info(waitlist)")
+        }
+        if "welcomed_at" not in waitlist_columns:
+            self._conn.execute("ALTER TABLE waitlist ADD COLUMN welcomed_at TEXT")
 
     def _restrict_permissions(self) -> None:
         """Make the database owner-only on POSIX.
@@ -466,6 +483,28 @@ class Store:
                 "SELECT COUNT(*) AS n FROM waitlist"
             ).fetchone()["n"]
         return already, int(count)
+
+    def claim_waitlist_welcome(self, email: str) -> bool:
+        """Atomically claim the one welcome send for ``email``.
+
+        A single UPDATE means two simultaneous sign-ups cannot both send. A
+        successful send leaves ``welcomed_at`` set; a failed one calls
+        :meth:`release_waitlist_welcome` so the next attempt can retry.
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE waitlist SET welcomed_at = ? "
+                "WHERE email = ? AND welcomed_at IS NULL",
+                (_iso(_utc_now()), email),
+            )
+            return cur.rowcount == 1
+
+    def release_waitlist_welcome(self, email: str) -> None:
+        """Undo a claim after a delivery failure, making it retryable."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE waitlist SET welcomed_at = NULL WHERE email = ?", (email,)
+            )
 
     def waitlist_count(self) -> int:
         with self._lock:

@@ -52,6 +52,7 @@ from urllib.parse import parse_qs, urlsplit
 from .agent import run
 from .auth import AuthError, AuthService, Session, normalize_email, validate_email
 from .core import REASON_LABELS, Company
+from .emails import waitlist_welcome
 from .io import parse_customers_csv, parse_invoices_csv, render_markdown
 from .mailer import MailMessage, Mailer
 from .store import Store, StoreError
@@ -95,7 +96,17 @@ LOG = logging.getLogger("dunwell")
 
 # Static filenames the public server is willing to read, and nothing else.
 STATIC_ALLOWLIST = frozenset(
-    {"index.html", "styles.css", "privacy.html", "terms.html", "favicon.ico"}
+    {
+        "index.html",
+        "styles.css",
+        "privacy.html",
+        "terms.html",
+        "favicon.ico",
+        "icon.svg",
+        "logo.svg",
+        "apple-touch-icon.png",
+        "config.js",
+    }
 )
 
 _SEND_ROUTE = re.compile(r"^/api/drafts/([^/]+)/send$")
@@ -457,10 +468,65 @@ class Application:
             return error_response(422, "invalid email address", "invalid_email")
         source = str(payload.get("source") or "landing").strip()[:64] or "landing"
         already, count = self.store.add_waitlist(email, source)
+        # A new row, or an old row that never got its welcome, is sent one
+        # confirmation. A repeat sign-up for an address already welcomed is a
+        # no-op, so refreshing the form cannot spam someone.
+        welcomed = self._send_waitlist_welcome(email)
         out: dict = {"ok": True, "count": count}
         if already:
             out["already"] = True
+        if welcomed:
+            out["welcome"] = True
         return json_response(out)
+
+    def _send_waitlist_welcome(self, email: str) -> bool:
+        """Claim and deliver the one confirmation email for ``email``.
+
+        Returns whether this request owns the send. Delivery failures are
+        logged and the claim is released, so the address can retry later -
+        but a mail server problem must never turn a stored signup into an
+        error the visitor sees.
+        """
+        if not _env_flag("DUNWELL_WAITLIST_WELCOME", True):
+            return False
+        if not self.store.claim_waitlist_welcome(email):
+            return False
+
+        reply_to = (
+            os.environ.get("DUNWELL_WAITLIST_REPLY_TO")
+            or os.environ.get("MAIL_FROM")
+            or getattr(self.mailer, "from_address", "")
+        )
+        message = waitlist_welcome(
+            email=email,
+            site_url=os.environ.get("DUNWELL_SITE_URL", ""),
+            founder=os.environ.get("DUNWELL_FOUNDER_NAME", "Mahek"),
+            brand=os.environ.get("DUNWELL_BRAND_NAME", "Dunwell"),
+            reply_to=reply_to,
+            mailing_address=os.environ.get("DUNWELL_MAILING_ADDRESS", ""),
+        )
+
+        # Dry-run is the local/test mode: deliver inline so the recorded
+        # message and the response stay in step. SMTP and HTTP APIs can take
+        # seconds or fail slowly; never make a visitor wait on a mail server.
+        if getattr(self.mailer, "mode", "dryrun") == "dryrun":
+            self._deliver_waitlist_welcome(message)
+            return True
+
+        threading.Thread(
+            target=self._deliver_waitlist_welcome,
+            args=(message,),
+            daemon=True,
+            name="dunwell-waitlist-welcome",
+        ).start()
+        return True
+
+    def _deliver_waitlist_welcome(self, message: MailMessage) -> None:
+        try:
+            self.mailer.send(message)
+        except Exception:  # noqa: BLE001 - transport errors vary by provider
+            LOG.exception("waitlist welcome failed for %s", message.to)
+            self.store.release_waitlist_welcome(message.to)
 
     # ------------------------------------------------------------------ #
     # Auth
@@ -903,6 +969,13 @@ class Application:
             body=target.read_bytes(),
             headers={"Cache-Control": cache},
         )
+
+
+def _env_flag(name: str, default: bool = True) -> bool:
+    raw = (os.environ.get(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw not in {"0", "false", "no", "off"}
 
 
 def _clean_text(value: object, limit: int) -> str:

@@ -30,7 +30,7 @@ python -m dunwell.serve --port 8906
 | `http://127.0.0.1:8906/api/**` | The JSON API the dashboard uses |
 
 State lives in one SQLite file (`dunwell.db` by default). Drafts are recorded
-but **not delivered** until you configure SMTP — see
+but **not delivered** until you configure email delivery - see
 [Email delivery](#email-delivery).
 
 ## Layout
@@ -75,7 +75,7 @@ All responses are `{ "ok": true, ... }` or `{ "ok": false, "error": { "message",
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/health` | - | liveness probe: `{ok, status, signup}` |
-| `POST` | `/api/waitlist` | — | `{email, source}` → `{ok, count, already?}` |
+| `POST` | `/api/waitlist` | — | `{email, source}` → `{ok, count, already?, welcome?}` |
 | `GET` | `/api/waitlist/count` | — | `{ok, count}` |
 | `POST` | `/api/signup` | — | `{email, password}` → sets session cookie |
 | `POST` | `/api/login` | — | `{email, password}` → sets session cookie |
@@ -112,15 +112,39 @@ collide, and `sent_at` carries microseconds so ordering survives a burst.
 
 | Variable | Effect |
 | --- | --- |
-| `DUNWELL_MAIL_MODE` | `dryrun` (default) or `smtp` |
+| `DUNWELL_MAIL_MODE` | `dryrun` (default), `api`, or `smtp` |
+| `DUNWELL_MAIL_API_KEY` | required for `api`; `RESEND_API_KEY` also works |
+| `DUNWELL_MAIL_API_URL` | default `https://api.resend.com/emails` |
 | `SMTP_HOST`, `SMTP_PORT` | required for `smtp`; missing host falls back to dryrun |
 | `SMTP_USER`, `SMTP_PASSWORD` | credentials, if the relay needs them |
 | `SMTP_TLS` | `1` (default) upgrades with STARTTLS; `0` disables |
-| `MAIL_FROM` | envelope sender — use a domain you have verified |
+| `MAIL_FROM` | sender — use a domain you have verified |
 
-Dry-run mode records the message in memory and returns a `dry_<hex>` delivery
-id, so the whole approve → send → history flow is testable offline. Nothing
-leaves the machine until you ask it to.
+`api` mode sends the same message over HTTPS, so it works on hosts that block
+outbound SMTP (Railway, Render, PythonAnywhere free). Dry-run mode records the
+message in memory and returns a `dry_<hex>` delivery id, so the whole approve
+→ send → history flow is testable offline. Nothing leaves the machine until
+you ask it to.
+
+**Waitlist confirmation.** A new waitlist address gets one branded HTML email
+with a plain-text fallback, sent after the row is stored. A repeat sign-up for
+an already-welcomed address sends nothing; a failed delivery is released so it
+can retry. Configure it with:
+
+```bash
+DUNWELL_WAITLIST_WELCOME=1
+DUNWELL_SITE_URL=https://your-landing.example
+DUNWELL_FOUNDER_NAME=Mahek
+DUNWELL_WAITLIST_REPLY_TO=you@yourdomain.com   # defaults to MAIL_FROM
+```
+
+To send the exact message as a test:
+
+```bash
+python -m dunwell.mailtest --to you@example.com
+```
+
+Without credentials it writes `out/waitlist-welcome.html` and `.txt` instead.
 
 
 ## Decision policy

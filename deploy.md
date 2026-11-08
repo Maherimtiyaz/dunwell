@@ -579,10 +579,11 @@ prints `mailer dryrun` when it has fallen back.
 | **Mailgun** | SMTP 587 | 5,000/mo | 587 | Sandbox mode for testing. |
 | **Amazon SES** | SMTP 587 | 3,000/mo | 587 | Cheapest at volume. |
 
-**Recommendation:** use an **HTTP API** (Resend or Brevo) wherever the platform
-blocks SMTP — Railway, Render, and PythonAnywhere-free all block raw SMTP but
-allow HTTPS to the provider's API. It also avoids the shared-PaS-IP
-deliverability problems that plague SMTP from Render and Koyeb.
+**Recommendation:** use `DUNWELL_MAIL_MODE=api` with **Resend** wherever the
+platform blocks SMTP — Railway, Render, and PythonAnywhere-free all block raw
+SMTP but allow HTTPS. It also avoids the shared-PaaS-IP deliverability
+problems that plague SMTP from Render and Koyeb. The built-in `ApiMailer`
+speaks Resend's payload; another provider needs a small adapter.
 
 ### 10b. Using SMTP (Koyeb, or a paid tier anywhere)
 
@@ -602,43 +603,31 @@ rejected outright.
 
 ### 10c. Using an HTTP API (recommended)
 
-`SmtpMailer` speaks raw SMTP only. To use an HTTP provider, add a small
-`ApiMailer` next to it in `dunwell/mailer.py`:
+`ApiMailer` is built in. It sends the same `MailMessage` over HTTPS JSON, so
+it works on hosts that block outbound SMTP. The default endpoint is Resend:
 
-```python
-@dataclass
-class ApiMailer:
-    """Delivery over an HTTPS email API, for platforms that block SMTP."""
-
-    mode: str = "api"
-    from_address: str = "billing@dunwell.app"
-
-    def send(self, message: MailMessage) -> str:
-        import json
-        import urllib.request
-
-        payload = json.dumps({
-            "from": self.from_address,
-            "to": [message.to],
-            "subject": message.subject,
-            "text": message.body,
-        }).encode("utf-8")
-        request = urllib.request.Request(
-            os.environ.get("MAIL_API_URL", "https://api.resend.com/emails"),
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {os.environ.get('MAIL_API_KEY', '')}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=20) as response:
-            body = json.loads(response.read().decode("utf-8"))
-        return f"api_{body.get('id', uuid.uuid4().hex[:16])}"
+```bash
+DUNWELL_MAIL_MODE=api
+DUNWELL_MAIL_API_KEY=re_xxxxxxxxxxxx
+DUNWELL_MAIL_API_URL=https://api.resend.com/emails
+MAIL_FROM=hello@yourdomain.com
 ```
 
-Then extend `build_mailer()` to return it when `DUNWELL_MAIL_MODE=api`. The
-`Mailer` protocol means nothing else in the codebase changes.
+Verify your sending domain with the provider first (SPF + DKIM; DMARC if you
+can). `MAIL_FROM` must be an address at that verified domain.
+
+If `DUNWELL_MAIL_API_KEY` is missing, `build_mailer()` falls back to dry-run
+rather than starting in a mode that silently drops mail. Check the startup
+banner: it prints `mailer dryrun` when it has fallen back.
+
+To verify delivery without touching the web app:
+
+```bash
+python -m dunwell.mailtest --to you@example.com
+```
+
+That sends the exact waitlist email. Without credentials it writes
+`out/waitlist-welcome.html` and `.txt` instead, so you can inspect the design.
 
 ### 10d. Deliverability essentials
 

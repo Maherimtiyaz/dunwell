@@ -126,10 +126,11 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         print("  signup      open (anyone can create an account)")
-    if app.mailer.mode != "smtp":
+    if app.mailer.mode == "dryrun":
         print(
-            "  note: drafts are recorded, not delivered. Set DUNWELL_MAIL_MODE=smtp\n"
-            "        and SMTP_HOST to send for real."
+            "  note: drafts and waitlist confirmations are recorded, not delivered.\n"
+            "        Set DUNWELL_MAIL_MODE=api + DUNWELL_MAIL_API_KEY, or\n"
+            "        DUNWELL_MAIL_MODE=smtp + SMTP_HOST, to send for real."
         )
 
     try:

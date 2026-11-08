@@ -298,7 +298,7 @@ def test_rate_limiter_allows_then_blocks_then_resets() -> None:
 def test_waitlist_endpoint_contract(app) -> None:
     r = call(app, "POST", "/api/waitlist", {"email": "a@b.test", "source": "landing"})
     assert r.status == 200
-    assert body_of(r) == {"ok": True, "count": 1}
+    assert body_of(r) == {"ok": True, "count": 1, "welcome": True}
 
     r = call(app, "POST", "/api/waitlist", {"email": "A@B.test", "source": "landing"})
     assert body_of(r) == {"ok": True, "count": 1, "already": True}
