@@ -17,6 +17,7 @@ connection plus a lock is both correct and simpler than a pool.
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 import sqlite3
 import threading
@@ -137,8 +138,30 @@ class Store:
         # Row factories keep this module readable at the call sites.
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
+        # Wait for a competing writer instead of failing instantly; the app
+        # serializes writes itself, but a backup or CLI can hold the file.
+        self._conn.execute("PRAGMA busy_timeout = 5000")
+        # Overwrite deleted rows rather than leaving them in free pages. A
+        # ledger re-import otherwise leaves the previous customer's invoice
+        # data recoverable from the SQLite file.
+        self._conn.execute("PRAGMA secure_delete = ON")
         with self._lock:
             self._conn.executescript(SCHEMA)
+        self._restrict_permissions()
+
+    def _restrict_permissions(self) -> None:
+        """Make the database owner-only on POSIX.
+
+        The file holds password hashes, session digests, waitlist emails, and
+        customer ledgers. SQLite creates it with the process umask, which is
+        often world-readable on shared hosts.
+        """
+        if self.path == ":memory:" or os.name == "nt":
+            return
+        try:
+            os.chmod(self.path, 0o600)
+        except OSError:
+            pass
 
     def close(self) -> None:
         with self._lock:
@@ -179,7 +202,9 @@ class Store:
                     ),
                 )
         except sqlite3.IntegrityError as exc:
-            raise StoreError(f"account already exists: {email}") from exc
+            # Do not embed the address: callers surface this message to the
+            # client and it would confirm whether an email is registered.
+            raise StoreError("account already exists") from exc
         return int(cur.lastrowid)
 
     def account_by_email(self, email: str) -> sqlite3.Row | None:

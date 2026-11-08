@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 from datetime import date
+from io import StringIO
 from pathlib import Path
 
 from .core import (
@@ -20,10 +21,25 @@ def _date_or_none(value: str) -> date | None:
     return date.fromisoformat(value) if value else None
 
 
+# A customer name or invoice number is attacker-controlled input from a CSV.
+# Excel and Sheets execute a cell that starts with these characters, so a
+# ledger containing "=HYPERLINK(...)" turns the exported decisions.csv into a
+# weapon aimed at the operator.
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value: object) -> str:
+    text = str(value)
+    if text and text[0] in _CSV_FORMULA_PREFIXES:
+        return "'" + text
+    return text
+
+
 def parse_customers_csv(text: str) -> dict[str, Customer]:
     """Parse a customers CSV body. Shared by the file loader and the API."""
     customers: dict[str, Customer] = {}
-    for row in csv.DictReader(text.splitlines()):
+    # StringIO, not splitlines(): a quoted field may legally contain a newline.
+    for row in csv.DictReader(StringIO(text)):
         if not (row.get("id") or "").strip():
             continue
         c = Customer(
@@ -42,7 +58,7 @@ def parse_customers_csv(text: str) -> dict[str, Customer]:
 def parse_invoices_csv(text: str) -> list[Invoice]:
     """Parse an invoices CSV body. Shared by the file loader and the API."""
     invoices: list[Invoice] = []
-    for row in csv.DictReader(text.splitlines()):
+    for row in csv.DictReader(StringIO(text)):
         if not (row.get("id") or "").strip():
             continue
         contacts = tuple(
@@ -158,16 +174,16 @@ def write_report(report: RunReport, out_dir: str | Path) -> Path:
         for a in report.actions:
             writer.writerow(
                 [
-                    a.invoice.id,
-                    a.invoice.number,
-                    a.customer.name,
+                    _csv_safe(a.invoice.id),
+                    _csv_safe(a.invoice.number),
+                    _csv_safe(a.customer.name),
                     a.invoice.amount_cents,
-                    a.invoice.currency,
+                    _csv_safe(a.invoice.currency),
                     a.invoice.days_overdue(report.as_of),
                     a.decision.action,
                     a.decision.stage.value,
                     a.decision.reason.value,
-                    a.draft.to if a.draft else "",
+                    _csv_safe(a.draft.to) if a.draft else "",
                 ]
             )
     return md_path

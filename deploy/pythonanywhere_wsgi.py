@@ -45,9 +45,15 @@ DATA_DIR = os.path.join(PROJECT, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 os.environ.setdefault("DUNWELL_DB", os.path.join(DATA_DIR, "dunwell.db"))
 
-# The landing page is hosted on GitHub Pages and posts sign-ups here, so this
+# The landing page is hosted separately and posts sign-ups here, so this
 # exact origin must be allowed. No trailing slash. Add a custom domain later
 # with a comma, e.g. "https://dunwell.app,https://www.dunwell.app".
+#
+# If the landing moves to Vercel, replace this value with the production
+# origin, e.g. "https://dunwell.vercel.app". Preview deployments use a random
+# origin per build and are rejected by design - test the form on the
+# production URL, not a preview. Never use "*": the parser does not treat it
+# as a wildcard, and a wildcard would let any site post to the waitlist.
 os.environ.setdefault(
     "DUNWELL_CORS_ORIGINS", "https://maherimtiyaz.github.io"
 )

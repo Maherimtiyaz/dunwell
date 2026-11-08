@@ -35,6 +35,7 @@ Sending is deliberately explicit: a draft is only ever delivered by a
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -65,8 +66,32 @@ DEMO_DIR = Path(__file__).resolve().parent.parent / "demo"
 # how it was hosted.
 SECURITY_HEADERS = (
     ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
     ("Referrer-Policy", "strict-origin-when-cross-origin"),
+    ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"),
+    # The dashboard and landing ship one inline <script> and inline styles, so
+    # 'unsafe-inline' is required; everything else is locked to this origin.
+    # frame-ancestors/base-uri/form-action are the parts that actually stop
+    # clickjacking and base-tag hijacking.
+    (
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "frame-src https://www.youtube.com https://www.youtube-nocookie.com "
+        "https://player.vimeo.com; "
+        "media-src 'self' https:; "
+        "frame-ancestors 'none'; "
+        "base-uri 'none'; "
+        "form-action 'self'; "
+        "object-src 'none'",
+    ),
 )
+
+LOG = logging.getLogger("dunwell")
 
 # Static filenames the public server is willing to read, and nothing else.
 STATIC_ALLOWLIST = frozenset(
@@ -166,6 +191,9 @@ class Response:
 
 
 def json_response(payload: dict, status: int = 200, **headers: str) -> Response:
+    # Every JSON response can contain ledger data, so never let a browser or
+    # an intermediary keep a copy.
+    headers.setdefault("Cache-Control", "no-store")
     return Response(
         status=status,
         body=json.dumps(payload).encode("utf-8"),
@@ -226,13 +254,25 @@ class Application:
         method = method.upper()
 
         try:
-            return self._route(method, path, query, headers, body, client_ip)
+            response = self._route(method, path, query, headers, body, client_ip)
         except AuthError as exc:
-            return error_response(401, str(exc), "unauthorized")
+            response = error_response(401, str(exc), "unauthorized")
         except (StoreError, ValueError, KeyError) as exc:
-            return error_response(400, str(exc), "bad_request")
-        except Exception as exc:  # noqa: BLE001 - never leak a traceback
-            return error_response(500, f"internal error: {exc}", "server_error")
+            response = error_response(400, str(exc), "bad_request")
+        except Exception:  # noqa: BLE001 - never leak a traceback to the caller
+            # Log the traceback server-side, return a fixed message. The old
+            # response embedded str(exc), which leaked filesystem paths and
+            # SQLite/OS error text to whoever triggered it.
+            LOG.exception("unhandled error for %s %s", method, path)
+            response = error_response(500, "internal error", "server_error")
+
+        if self._is_secure(headers):
+            # Only meaningful over HTTPS, and only sent when the request
+            # actually arrived over it, so local HTTP runs are unaffected.
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000"
+            )
+        return response
 
     def _route(
         self,
@@ -249,6 +289,35 @@ class Application:
         # routes only.
         if method == "OPTIONS" and path in _CORS_PATHS:
             return self._preflight(headers)
+
+        # A browser sends Origin on a cross-origin POST. Requiring JSON for
+        # those requests forces a CORS preflight, so a "simple" text/plain
+        # request cannot smuggle a JSON body past the origin allowlist.
+        if (
+            method in {"POST", "PUT", "PATCH"}
+            and path.startswith("/api/")
+            and headers.get("origin")
+        ):
+            ctype = (headers.get("content-type") or "").split(";")[0].strip().lower()
+            if ctype != "application/json":
+                return error_response(
+                    415,
+                    "Content-Type must be application/json",
+                    "unsupported_media_type",
+                )
+
+        # Defence in depth for cookie-bearing writes. SameSite=Lax already
+        # stops a cross-site form POST from carrying the session cookie; this
+        # catches older browsers, and any future relaxation of the cookie.
+        # Public waitlist signups have no cookie, so they are unaffected and
+        # still gated by the CORS preflight.
+        if (
+            method in {"POST", "PUT", "PATCH", "DELETE"}
+            and headers.get("cookie")
+            and not self._origin_ok(headers)
+        ):
+            return error_response(403, "origin not allowed", "forbidden_origin")
+
         if method == "POST" and path == "/api/waitlist":
             return self._cors(headers, self._waitlist_signup(headers, body, client_ip))
         if method == "GET" and path == "/api/waitlist/count":
@@ -321,6 +390,29 @@ class Application:
             return ""
         return origin
 
+    def _origin_ok(self, headers: dict[str, str]) -> bool:
+        """Whether a cookie-bearing write came from this site or an allowed one.
+
+        A missing Origin means a non-browser client (curl, a test, a script);
+        those are allowed because they cannot be tricked into carrying a
+        victim's cookie. A present Origin must match the host the request was
+        addressed to, or one of the explicitly allowed CORS origins.
+        """
+        origin = (headers.get("origin") or "").strip().rstrip("/")
+        if not origin:
+            return True
+        if origin in self.cors_origins:
+            return True
+
+        parsed = urlsplit(origin)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return False
+        # The public host, as the proxy saw it; X-Forwarded-Host wins because
+        # the socket-facing Host can be an internal address behind a proxy.
+        host = (headers.get("x-forwarded-host") or headers.get("host") or "")
+        host = host.split(",")[0].strip().lower()
+        return bool(host) and parsed.netloc.lower() == host
+
     def _cors(self, headers: dict[str, str], response: Response) -> Response:
         origin = self._allowed_origin(headers)
         if origin:
@@ -387,14 +479,26 @@ class Application:
         return self.auth.resolve(morsel.value)
 
     def _is_secure(self, headers: dict[str, str]) -> bool:
-        """True when the request reached us over HTTPS.
+        """True when the request should be treated as HTTPS.
 
-        Behind a TLS-terminating proxy the socket is plain HTTP, so the only
-        signal is the header the proxy sets. Without it the cookie would
-        travel in clear text on a public deploy.
+        Behind a TLS-terminating proxy the socket is plain HTTP, so the first
+        signal is the header the proxy sets. If that header is missing, fall
+        back to the host name: anything that is not localhost is treated as a
+        public deployment, because a missed ``Secure`` flag sends the session
+        cookie in clear text. A misclassification only breaks login on a
+        plain-HTTP LAN test; the opposite mistake leaks the cookie.
         """
         proto = headers.get("x-forwarded-proto", "")
-        return proto.split(",")[0].strip().lower() == "https"
+        proto = proto.split(",")[0].strip().lower()
+        if proto == "https":
+            return True
+        if proto == "http":
+            return False
+
+        host = (headers.get("x-forwarded-host") or headers.get("host") or "")
+        host = host.split(",")[0].strip().lower()
+        hostname = host.rsplit(":", 1)[0].strip("[]")
+        return hostname not in {"", "localhost", "127.0.0.1", "::1"}
 
     def _set_cookie(self, token: str, max_age: int, secure: bool = False) -> str:
         flags = "Path=/; HttpOnly; SameSite=Lax"
@@ -448,18 +552,46 @@ class Application:
             return limited
 
         password = str(payload.get("password", ""))
+
+        reply_to = _clean_text(payload.get("reply_to"), 254)
+        if reply_to:
+            try:
+                reply_to = validate_email(reply_to)
+            except AuthError:
+                return error_response(
+                    422, "invalid reply-to address", "invalid_email"
+                )
+
+        payment_link = _clean_text(payload.get("payment_link"), 500)
+        if payment_link and not payment_link.lower().startswith(
+            ("http://", "https://")
+        ):
+            return error_response(
+                422,
+                "payment link must be an http(s) URL",
+                "invalid_payment_link",
+            )
+
         try:
             session = self.auth.signup(
                 str(payload.get("email", "")),
                 password,
-                company_name=str(payload.get("company_name") or ""),
-                reply_to=str(payload.get("reply_to") or ""),
-                signature=str(payload.get("signature") or ""),
-                payment_link=str(payload.get("payment_link") or ""),
+                company_name=_clean_text(payload.get("company_name"), 120),
+                reply_to=reply_to,
+                signature=_clean_text(payload.get("signature"), 200),
+                payment_link=payment_link,
             )
         except AuthError as exc:
             status = 422 if str(exc) == "invalid_email" else 400
             return error_response(status, str(exc), str(exc))
+        except StoreError:
+            # Never echo the address back: that turns signup into an
+            # account-existence oracle.
+            return error_response(
+                409,
+                "an account with this email already exists",
+                "account_exists",
+            )
         return json_response(
             {"ok": True, "account": {"email": session.email, "id": session.account_id}},
             **{
@@ -681,15 +813,26 @@ class Application:
 
         draft = match.draft
         assert draft is not None
-        delivery_id = self.mailer.send(
-            MailMessage(
-                to=draft.to,
-                subject=draft.subject,
-                body=draft.body,
-                reply_to=report.company.reply_to,
-                from_name=report.company.name,
+        try:
+            delivery_id = self.mailer.send(
+                MailMessage(
+                    to=draft.to,
+                    subject=draft.subject,
+                    body=draft.body,
+                    reply_to=report.company.reply_to,
+                    from_name=report.company.name,
+                )
             )
-        )
+        except Exception:  # noqa: BLE001 - SMTP/transport errors vary
+            # A provider error used to escape as a 500 carrying its raw text
+            # (hostnames, credentials-adjacent detail). Log it, tell the user
+            # plainly, and record nothing so the invoice can be retried.
+            LOG.exception("mailer failed for invoice %s", invoice_id)
+            return error_response(
+                502,
+                "could not send the draft; nothing was recorded",
+                "send_failed",
+            )
         # sent_on is the run date so the cooldown window is measured against
         # the same clock the decisions used.
         self.store.record_nudge(
@@ -762,6 +905,18 @@ class Application:
         )
 
 
+def _clean_text(value: object, limit: int) -> str:
+    """One line, no control characters, bounded length.
+
+    Profile fields land in the draft body and the database, so a newline in a
+    company name must not become a header or an extra paragraph, and a
+    megabyte of text must not become a stored record.
+    """
+    text = str(value or "").replace("\r", " ").replace("\n", " ")
+    text = "".join(ch for ch in text if ch == "\t" or ord(ch) >= 32)
+    return text.strip()[:limit]
+
+
 def _json_body(body: bytes) -> dict:
     if not body:
         return {}
@@ -785,10 +940,24 @@ class _Handler(BaseHTTPRequestHandler):
     """Thin adapter: HTTP in, Application out. No logic of its own."""
 
     app: Application  # injected by make_server
-    server_version = "Dunwell/0.1"
+    server_version = "dunwell"
     sys_version = ""
+    # A client that opens a socket and never finishes its request must not
+    # hold a worker thread forever. StreamRequestHandler applies this to the
+    # connection socket.
+    timeout = 30
 
     def _dispatch(self) -> None:
+        # http.server does not decode chunked bodies. Treating one as an empty
+        # body would leave the payload on the socket, so close instead.
+        if self.headers.get("Transfer-Encoding"):
+            self.close_connection = True
+            self._write(
+                error_response(
+                    400, "chunked bodies are not supported", "bad_request"
+                )
+            )
+            return
         raw_length = self.headers.get("Content-Length") or "0"
         try:
             length = int(raw_length)

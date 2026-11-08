@@ -18,9 +18,11 @@ from dataclasses import dataclass
 
 from .store import Store, StoreError
 
-# scrypt parameters. n=2**14 keeps a single hash well under 100ms on a laptop
-# while staying far above plain PBKDF2-at-default cost for interactive login.
-_SCRYPT_N = 2**14
+# scrypt parameters. n=2**15 (32 MiB working set) is a middle ground for a
+# 512 MiB host: OWASP's 2**17 would be stronger but four concurrent logins
+# would exhaust the worker. Each stored hash records its own parameters, so
+# raising this later still verifies old accounts.
+_SCRYPT_N = 2**15
 _SCRYPT_R = 8
 _SCRYPT_P = 1
 _SALT_BYTES = 16
@@ -38,6 +40,10 @@ def hash_password(password: str, *, salt: bytes | None = None) -> str:
     """Return ``scrypt$n$r$p$salt$hash`` for a password."""
     if not isinstance(password, str) or len(password) < 8:
         raise AuthError("password must be at least 8 characters")
+    # scrypt cost is dominated by its parameters, but the input is still
+    # copied and encoded; a multi-megabyte "password" is pure CPU burn.
+    if len(password) > 1024:
+        raise AuthError("password is too long")
     salt = salt or secrets.token_bytes(_SALT_BYTES)
     derived = hashlib.scrypt(
         password.encode("utf-8"),
@@ -96,7 +102,7 @@ def validate_email(raw: str) -> str:
     local, _, domain = email.partition("@")
     if not local or "." not in domain or domain.startswith(".") or domain.endswith("."):
         raise AuthError("invalid_email")
-    if any(ch.isspace() for ch in email):
+    if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in email):
         raise AuthError("invalid_email")
     return email
 
