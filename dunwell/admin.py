@@ -25,6 +25,7 @@ import os
 import sys
 
 from .auth import AuthError, hash_password, validate_email
+from .env import load_dotenv
 from .store import Store, StoreError
 
 
@@ -37,6 +38,7 @@ def _prompt_password() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()
     parser = argparse.ArgumentParser(
         prog="dunwell.admin",
         description="Create an account on a deployment with signup closed.",

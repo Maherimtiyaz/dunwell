@@ -616,6 +616,10 @@ MAIL_FROM=hello@yourdomain.com
 Verify your sending domain with the provider first (SPF + DKIM; DMARC if you
 can). `MAIL_FROM` must be an address at that verified domain.
 
+On a laptop, put these in `.env` at the repo root instead of exporting them;
+the service loads that file at startup. On a host, set them as the platform's
+environment variables.
+
 If `DUNWELL_MAIL_API_KEY` is missing, `build_mailer()` falls back to dry-run
 rather than starting in a mode that silently drops mail. Check the startup
 banner: it prints `mailer dryrun` when it has fallen back.

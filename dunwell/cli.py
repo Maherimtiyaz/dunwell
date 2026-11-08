@@ -10,10 +10,12 @@ from pathlib import Path
 from .agent import run
 from .connectors import CONNECTOR_TYPES, ConnectorError, build_connector
 from .core import Company
+from .env import load_dotenv
 from .io import render_markdown, write_report
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()
     parser = argparse.ArgumentParser(
         prog="dunwell",
         description="AI receivables follow-up agent (deterministic engine).",

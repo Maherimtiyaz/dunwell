@@ -75,7 +75,7 @@ All responses are `{ "ok": true, ... }` or `{ "ok": false, "error": { "message",
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/health` | - | liveness probe: `{ok, status, signup}` |
-| `POST` | `/api/waitlist` | — | `{email, source}` → `{ok, count, already?, welcome?}` |
+| `POST` | `/api/waitlist` | — | `{email, source}` → `{ok, count, already?, welcome?, mail?}` |
 | `GET` | `/api/waitlist/count` | — | `{ok, count}` |
 | `POST` | `/api/signup` | — | `{email, password}` → sets session cookie |
 | `POST` | `/api/login` | — | `{email, password}` → sets session cookie |
@@ -145,6 +145,11 @@ python -m dunwell.mailtest --to you@example.com
 ```
 
 Without credentials it writes `out/waitlist-welcome.html` and `.txt` instead.
+
+The signup response includes `"mail": "sent"` when the message was handed to a
+real transport, and `"mail": "recorded"` in dry-run mode. The landing form uses
+that to say plainly that email is not configured, rather than promising a
+message that was never sent.
 
 
 ## Decision policy
@@ -263,6 +268,14 @@ bundled dashboard is present, and the service starts and answers on
 
 Every variable the project reads is listed in `.env.example`. Nothing is
 required to run the CLI, the service, or the tests offline.
+
+Copy `.env.example` to `.env` and edit it, or export the variables in the
+shell. Every entry point (`serve`, `wsgi`, `admin`, `mailtest`, `cli`) loads
+`.env` from the current directory or the repo root before reading config, so a
+local file is not silently ignored. Real environment variables win, and the
+service banner prints which file it read (`env file ...`). On a hosted
+deployment, keep using the platform's environment variables; `.env` is
+gitignored and meant for a laptop.
 
 Two of them matter before a public deploy:
 

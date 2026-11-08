@@ -477,6 +477,12 @@ class Application:
             out["already"] = True
         if welcomed:
             out["welcome"] = True
+            # "recorded" means dry-run: the row is stored and the message was
+            # built, but nothing left the machine. The form uses this to avoid
+            # promising an email that was never sent.
+            out["mail"] = (
+                "recorded" if getattr(self.mailer, "mode", "dryrun") == "dryrun" else "sent"
+            )
         return json_response(out)
 
     def _send_waitlist_welcome(self, email: str) -> bool:

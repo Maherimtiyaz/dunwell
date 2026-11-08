@@ -74,6 +74,8 @@ def test_new_signup_sends_one_welcome_email(store) -> None:
 
     assert response.status == 200
     assert body_of(response)["welcome"] is True
+    # Dry-run is honest about it: the message was built, not delivered.
+    assert body_of(response)["mail"] == "recorded"
     assert len(mailer.sent) == 1
     message = mailer.sent[0]
     assert message.to == "owner@example.com"
@@ -151,6 +153,7 @@ def test_api_mode_delivers_off_the_request_thread(store) -> None:
 
     assert response.status == 200
     assert body_of(response)["welcome"] is True
+    assert body_of(response)["mail"] == "sent"
     assert mailer.done.wait(2.0)
     assert [m.to for m in mailer.sent] == ["async@example.com"]
 

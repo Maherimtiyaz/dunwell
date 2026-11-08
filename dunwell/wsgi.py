@@ -32,6 +32,7 @@ import threading
 from http import HTTPStatus
 from typing import Any, Callable, Iterable
 
+from .env import load_dotenv
 from .service import (
     MAX_BODY_BYTES,
     SECURITY_HEADERS,
@@ -60,6 +61,10 @@ _HOP_BY_HOP = frozenset(
 
 def create_app() -> Application:
     """Build the application from the environment, once per process."""
+    # A WSGI host imports this module and calls application() on the first
+    # request; loading here means a .env next to the checkout is honoured
+    # without every host's config file needing an env loader of its own.
+    load_dotenv()
     db_path = os.environ.get("DUNWELL_DB", "dunwell.db")
     static_dir = os.environ.get("DUNWELL_STATIC_DIR") or None
     return build_app(db_path, static_dir=static_dir)

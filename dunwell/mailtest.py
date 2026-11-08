@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 from .emails import render_waitlist_welcome, waitlist_welcome
+from .env import load_dotenv
 from .mailer import build_mailer
 
 
@@ -49,6 +50,7 @@ def _write_preview(path: Path, text_body: str, html_body: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()
     parser = argparse.ArgumentParser(
         prog="dunwell.mailtest",
         description="Send or preview the Dunwell waitlist confirmation email.",

@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 from .auth import AuthService
+from .env import load_dotenv
 from .mailer import build_mailer
 from .service import Application, make_server, serve_forever
 from .store import Store
@@ -89,6 +90,10 @@ def build_app(
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Read .env before argparse builds its defaults: --port, --host, and --db
+    # all take their default from the environment.
+    env_file = load_dotenv()
+
     parser = argparse.ArgumentParser(
         prog="dunwell serve",
         description="Serve the Dunwell dashboard, landing page, and API.",
@@ -119,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  landing     {static}")
     print(f"  database    {args.db}")
     print(f"  mailer      {app.mailer.mode}")
+    print(f"  env file    {env_file or '(none - using the process environment)'}")
     if app.signup_mode != "open":
         print(
             "  signup      closed (set DUNWELL_SIGNUP_MODE=open for self-serve,\n"
