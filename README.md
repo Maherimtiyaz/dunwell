@@ -275,7 +275,9 @@ shell. Every entry point (`serve`, `wsgi`, `admin`, `mailtest`, `cli`) loads
 local file is not silently ignored. Real environment variables win, and the
 service banner prints which file it read (`env file ...`). On a hosted
 deployment, keep using the platform's environment variables; `.env` is
-gitignored and meant for a laptop.
+gitignored and meant for a laptop. `DUNWELL_SKIP_DOTENV=1` disables the search
+entirely, and both UTF-8 and the UTF-16 files Windows PowerShell writes are
+accepted.
 
 Two of them matter before a public deploy:
 

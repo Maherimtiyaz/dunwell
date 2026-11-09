@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -5,6 +6,11 @@ import pytest
 
 # Make the package importable when running pytest from the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# A developer's real .env (API keys, company details, signup mode) must never
+# reach the suite. Some tests call the real entry points, which load .env; the
+# loader's own tests clear this flag and call load_dotenv directly.
+os.environ["DUNWELL_SKIP_DOTENV"] = "1"
 
 
 @pytest.fixture(autouse=True)

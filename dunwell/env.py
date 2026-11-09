@@ -138,6 +138,33 @@ def _candidates(explicit: str | Path | None) -> list[Path]:
     return found
 
 
+def _read_text(path: Path) -> str:
+    """Decode a config file written by any of the usual Windows editors.
+
+    Notepad is UTF-8 now, but Windows PowerShell 5 redirection and older
+    "Unicode" saves produce UTF-16. Reading those as UTF-8 yields NUL bytes
+    between every character, so every key looks invalid - the exact silent
+    failure this loader exists to prevent.
+    """
+    data = path.read_bytes()
+    if data.startswith(b"\xef\xbb\xbf"):
+        return data.decode("utf-8-sig")
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16")
+    # UTF-16LE without a BOM: ASCII keys leave NULs in the first bytes.
+    if b"\x00" in data[:200]:
+        try:
+            return data.decode("utf-16-le")
+        except UnicodeDecodeError:
+            pass
+    return data.decode("utf-8")
+
+
+def _skip_requested() -> bool:
+    raw = (os.environ.get("DUNWELL_SKIP_DOTENV") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def load_dotenv(
     path: str | Path | None = None,
     *,
@@ -148,8 +175,12 @@ def load_dotenv(
     Returns the file that was read, or ``None`` when there was nothing to
     load. ``override=False`` keeps real environment variables authoritative,
     which is what a deployment wants: a stray ``.env`` in the app directory
-    must not replace the host's settings.
+    must not replace the host's settings. ``DUNWELL_SKIP_DOTENV=1`` disables
+    the automatic search entirely (an explicit ``path`` still loads).
     """
+    if path is None and _skip_requested():
+        return None
+
     explicit = path is not None
     candidates = _candidates(path)
 
@@ -162,8 +193,8 @@ def load_dotenv(
             continue
 
         try:
-            text = candidate.read_text(encoding="utf-8-sig")
-        except OSError as exc:
+            text = _read_text(candidate)
+        except (OSError, UnicodeDecodeError) as exc:
             print(
                 f"dunwell: could not read {candidate}: {exc}",
                 file=sys.stderr,
